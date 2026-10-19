@@ -1,0 +1,16 @@
+name: Diagnose site access
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe
+        run: |
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+          for u in https://resources.vic.gov.au/about-us/news https://resources.vic.gov.au/ https://resources.vic.gov.au/rss.xml https://resources.vic.gov.au/feed https://resources.vic.gov.au/sitemap.xml https://resources.vic.gov.au/robots.txt; do
+            echo "=== $u"
+            curl -s -o body.txt -D - -A "$UA" -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' -H 'Accept-Language: en-AU,en;q=0.9' --compressed "$u" | grep -iE '^(HTTP|server|cf-|x-akamai|akamai|x-cache|content-type|x-iinfo|set-cookie: (__cf|incap|visid|ak_))' | head -12
+            head -c 400 body.txt; echo
+          done
+          echo "=== jina reader"
+          curl -s "https://r.jina.ai/https://resources.vic.gov.au/about-us/news" | head -60
