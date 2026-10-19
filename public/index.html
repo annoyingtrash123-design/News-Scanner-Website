@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>News Scanner</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>News Scanner</h1>
+    <p class="sub">Add pages to watch. You get an email when their content changes.</p>
+  </header>
+
+  <section id="login" hidden>
+    <form id="login-form" class="stack">
+      <label class="field"><span>Password</span><input type="password" id="login-pw" autocomplete="current-password" required autofocus></label>
+      <div class="row"><button class="primary" type="submit">Sign in</button><span class="msg" id="login-msg"></span></div>
+    </form>
+  </section>
+
+  <div id="app" hidden>
+    <section>
+      <form id="add-form" class="stack">
+        <div class="row grow">
+          <input type="url" id="add-url" placeholder="https://example.gov/press-releases" required aria-label="Page URL">
+          <button class="primary" type="submit" id="add-btn">Watch</button>
+        </div>
+        <input type="text" id="add-label" placeholder="Label (optional)" aria-label="Label" maxlength="100">
+        <details>
+          <summary>Advanced</summary>
+          <label class="field"><span>CSS selector (watch only part of the page)</span>
+            <input type="text" id="add-selector" placeholder="e.g. #releases-list or main .news-items"></label>
+        </details>
+        <p class="msg" id="add-msg" role="status"></p>
+      </form>
+    </section>
+
+    <section>
+      <h2>Watching</h2>
+      <ul id="watches" class="list"></ul>
+      <p class="empty" id="watches-empty" hidden>Nothing yet. Add a URL above.</p>
+    </section>
+
+    <section>
+      <h2>Recent updates</h2>
+      <ul id="events" class="list"></ul>
+      <p class="empty" id="events-empty" hidden>No changes detected yet.</p>
+    </section>
+
+    <section>
+      <h2>Settings</h2>
+      <form id="settings-form" class="stack">
+        <label class="field"><span>Notification email</span>
+          <input type="email" id="notify-email" placeholder="you@example.com"></label>
+        <div class="row">
+          <button class="primary" type="submit">Save</button>
+          <button type="button" class="link" id="test-email">Send test email</button>
+          <span class="msg" id="settings-msg" role="status"></span>
+        </div>
+      </form>
+    </section>
+
+    <footer><button class="link" id="logout" hidden>Sign out</button></footer>
+  </div>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
