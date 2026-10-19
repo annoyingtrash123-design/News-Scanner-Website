@@ -32,29 +32,35 @@ async function sendMail({ to, subject, text, html }) {
 function buildChangeEmail({ watch, diff, at, appUrl }) {
   const name = watch.label || new URL(watch.url).hostname;
   const when = new Date(at).toUTCString();
-  const subject = `Update detected: ${name}`;
+  const docs = diff.newDocuments || [];
+  const subject = docs.length ? `New document: ${name}` : `Update detected: ${name}`;
+  const docLines = docs.map((d) => `- [${(d.ext || '').toUpperCase()}] ${d.text || d.href}\n  ${d.href}`);
   const linkLines = diff.newLinks.map((l) => `- ${l.text || l.href}\n  ${l.href}`);
   const textLines = diff.addedText.map((t) => `- ${t}`);
+  const nothing = !docs.length && !diff.newLinks.length && !diff.addedText.length;
   const text = [
-    `A change was detected on ${name}`,
+    `${docs.length ? 'New documents' : 'A change was detected'} on ${name}`,
     `URL: ${watch.url}`,
     `Time: ${when}`,
     '',
+    docs.length ? `New documents:\n${docLines.join('\n')}\n` : '',
     diff.newLinks.length ? `New links:\n${linkLines.join('\n')}\n` : '',
     diff.addedText.length ? `Added text:\n${textLines.join('\n')}\n` : '',
-    !diff.newLinks.length && !diff.addedText.length ? 'The page content changed, but no new links or text lines could be isolated (content may have been removed or reordered).\n' : '',
+    nothing ? 'The page content changed, but no new links or text lines could be isolated (content may have been removed or reordered).\n' : '',
   ].filter((x) => x !== '').join('\n');
 
   const li = (s) => `<li style="margin:0 0 6px">${s}</li>`;
+  const badge = (ext) => `<span style="display:inline-block;background:#2563eb;color:#fff;font-size:11px;font-weight:700;border-radius:4px;padding:1px 6px;margin-right:6px">${escapeHtml((ext || 'file').toUpperCase())}</span>`;
   const html = `<!doctype html><html><body style="margin:0;background:#f5f5f4;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1c1917">
 <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #e7e5e4;border-radius:10px;padding:24px">
-<h2 style="margin:0 0 4px;font-size:18px">Update detected</h2>
+<h2 style="margin:0 0 4px;font-size:18px">${docs.length ? 'New documents' : 'Update detected'}</h2>
 <p style="margin:0 0 16px;color:#57534e">${escapeHtml(name)}</p>
 <p style="margin:0 0 4px;font-size:14px"><a href="${escapeHtml(watch.url)}" style="color:#2563eb">${escapeHtml(watch.url)}</a></p>
 <p style="margin:0 0 16px;font-size:13px;color:#78716c">${escapeHtml(when)}</p>
+${docs.length ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 14px;margin:0 0 8px"><h3 style="font-size:15px;margin:0 0 8px">New documents</h3><ul style="padding-left:0;list-style:none;margin:0;font-size:14px">${docs.map((d) => li(`${badge(d.ext)}<a href="${escapeHtml(d.href)}" style="color:#2563eb;font-weight:600">${escapeHtml(d.text || d.href)}</a><br><span style="color:#78716c;font-size:12px;word-break:break-all">${escapeHtml(d.href)}</span>`)).join('')}</ul></div>` : ''}
 ${diff.newLinks.length ? `<h3 style="font-size:14px;margin:16px 0 8px">New links</h3><ul style="padding-left:18px;margin:0;font-size:14px">${diff.newLinks.map((l) => li(`<a href="${escapeHtml(l.href)}" style="color:#2563eb">${escapeHtml(l.text || l.href)}</a>`)).join('')}</ul>` : ''}
 ${diff.addedText.length ? `<h3 style="font-size:14px;margin:16px 0 8px">Added text</h3><ul style="padding-left:18px;margin:0;font-size:14px">${diff.addedText.map((t) => li(escapeHtml(t))).join('')}</ul>` : ''}
-${!diff.newLinks.length && !diff.addedText.length ? '<p style="font-size:14px;color:#57534e">The page content changed, but no new links or text lines could be isolated (content may have been removed or reordered).</p>' : ''}
+${nothing ? '<p style="font-size:14px;color:#57534e">The page content changed, but no new links or text lines could be isolated (content may have been removed or reordered).</p>' : ''}
 <p style="margin:24px 0 0;font-size:12px;color:#a8a29e">Sent by News Scanner${appUrl ? ` - ${escapeHtml(appUrl)}` : ''}</p>
 </div></body></html>`;
   return { subject, text, html };

@@ -64,3 +64,27 @@ test('isBlockedHost', () => {
   assert.equal(isBlockedHost('8.8.8.8'), false);
   assert.equal(isBlockedHost('::ffff:127.0.0.1'), true);
 });
+
+const { documentExt, isDocumentLink } = require('../src/lib');
+
+test('document classification by URL path extension', () => {
+  for (const e of ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'odt', 'ods', 'rtf', 'zip']) {
+    assert.equal(documentExt(`https://s.test/f/file.${e}`), e);
+  }
+  assert.equal(documentExt('https://s.test/a/B.PDF?download=1#p2'), 'pdf');
+  assert.equal(isDocumentLink('https://s.test/page.html'), false);
+  assert.equal(isDocumentLink('https://s.test/pdf'), false);
+  assert.equal(isDocumentLink('https://s.test/view?file=a.pdf'), false);
+});
+
+test('computeDiff separates new documents from other links', () => {
+  const prev = { lines: [], links: [{ href: 'https://s.test/old.pdf', text: 'Old' }] };
+  const curr = { lines: [], links: [
+    { href: 'https://s.test/old.pdf', text: 'Old' },
+    { href: 'https://s.test/new.docx', text: 'New' },
+    { href: 'https://s.test/news/1', text: 'Story' },
+  ] };
+  const d = computeDiff(prev, curr);
+  assert.deepEqual(d.newDocuments.map((l) => [l.href, l.ext]), [['https://s.test/new.docx', 'docx']]);
+  assert.deepEqual(d.newLinks.map((l) => l.href), ['https://s.test/news/1']);
+});

@@ -47,3 +47,18 @@ details summary { cursor: pointer; color: var(--muted); font-size: 14px; margin-
 .empty { color: var(--muted); font-size: 14px; }
 footer { text-align: center; }
 [hidden] { display: none !important; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+.row.between { justify-content: space-between; }
+.row.between h2 { margin-bottom: 12px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--muted); }
+.check input { width: auto; }
+.link-a { color: var(--muted); font-size: 14px; }
+.link-a:hover { color: var(--accent); }
+.tag { font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; color: var(--muted); }
+.badge { display: inline-block; font-size: 11px; font-weight: 700; background: var(--accent); color: #fff; border-radius: 4px; padding: 0 6px; margin-right: 6px; }
+@media (prefers-color-scheme: dark) { .badge { color: #0b0b0b; } }
+.docs { list-style: none; padding: 0; margin: 6px 0 0; font-size: 14px; }
+.docs li { padding: 2px 0; border: 0; }
+.docs a { color: var(--accent); font-weight: 400; }
+.event .what { color: var(--muted); font-size: 14px; }
+footer .hint { margin-right: 8px; }

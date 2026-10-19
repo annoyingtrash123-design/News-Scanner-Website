@@ -2,18 +2,19 @@
   "name": "news-scanner",
   "version": "1.0.0",
   "description": "Watch web pages and get an email when their content changes.",
-  "main": "server.js",
+  "main": "scripts/check.js",
   "private": true,
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "start": "node server.js",
-    "test": "node --test test/*.test.js"
+    "check": "node scripts/check.js",
+    "test": "node --test"
   },
   "license": "MIT",
   "dependencies": {
     "cheerio": "^1.0.0",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
     "nodemailer": "^6.9.14"
   }
 }

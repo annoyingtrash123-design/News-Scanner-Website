@@ -1,9 +1,6 @@
 'use strict';
 const dns = require('dns').promises;
-const crypto = require('crypto');
-const db = require('./db');
 const { extractContent, computeDiff, summarizeDiff, validateUrl, isBlockedHost } = require('./lib');
-const { sendMail, buildChangeEmail } = require('./mailer');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -50,78 +47,44 @@ async function fetchPage(url) {
   }
 }
 
-function getNotifyEmail() {
-  return db.get().settings.notifyEmail || process.env.NOTIFY_EMAIL || '';
-}
+const MAX_STORED_LINES = 1000;
 
-const inFlight = new Set();
-
-async function checkWatch(watch) {
-  if (inFlight.has(watch.id)) return watch;
-  inFlight.add(watch.id);
-  const now = new Date().toISOString();
+/**
+ * Check one watch. `prev` is the stored state entry for it (or undefined).
+ * Returns { entry, event, diff } where entry is the new state entry and event
+ * is a change event to record (or null). Never throws.
+ */
+async function checkWatch(watch, prev, { now = new Date().toISOString(), fetcher = fetchPage } = {}) {
+  prev = prev || {};
   try {
-    const { html, finalUrl } = await fetchPage(watch.url);
+    const { html, finalUrl } = await fetcher(watch.url);
     const content = extractContent(html, { selector: watch.selector, baseUrl: finalUrl });
     if (!content.text) throw new Error('No text found on page');
-    const snapshot = { lines: content.lines.slice(0, MAX_LINES), links: content.links.slice(0, MAX_LINKS) };
-    watch.lastChecked = now;
-    watch.lastStatus = 'ok';
-    watch.lastError = null;
-
-    if (!watch.lastHash) {
-      watch.lastHash = content.hash; // baseline, no email
-      watch.snapshot = snapshot;
-      watch.lastSnippet = content.text.slice(0, 200);
-    } else if (watch.lastHash !== content.hash) {
-      const diff = computeDiff(watch.snapshot || {}, snapshot);
-      const summary = summarizeDiff(diff);
-      watch.lastHash = content.hash;
-      watch.snapshot = snapshot;
-      watch.lastChanged = now;
-      watch.lastSnippet = (diff.addedText[0] || content.text).slice(0, 200);
-      const state = db.get();
-      state.events.unshift({ watchId: watch.id, url: watch.url, label: watch.label || '', at: now, summary });
-      state.events.length = Math.min(state.events.length, 100);
-      try {
-        await sendMail({ to: getNotifyEmail(), ...buildChangeEmail({ watch, diff, at: now }) });
-      } catch (e) {
-        console.error(`Email failed for ${watch.url}:`, e.message);
-        state.events[0].summary += ' (email failed)';
-      }
+    const curr = { lines: content.lines.slice(0, MAX_STORED_LINES), links: content.links.slice(0, MAX_LINKS) };
+    const entry = {
+      ...prev,
+      lastChecked: now, lastStatus: 'ok', lastError: null,
+      lastHash: content.hash, links: curr.links, lines: curr.lines,
+    };
+    if (!prev.lastHash) { // baseline, no alert
+      entry.lastSnippet = content.text.slice(0, 200);
+      return { entry, event: null, diff: null };
     }
+    if (prev.lastHash === content.hash) return { entry, event: null, diff: null };
+
+    const diff = computeDiff({ lines: prev.lines || [], links: prev.links || [] }, curr);
+    if (watch.documentsOnly && !diff.newDocuments.length) return { entry, event: null, diff }; // stored, but no alert
+    entry.lastChanged = now;
+    entry.lastSnippet = (diff.addedText[0] || content.text).slice(0, 200);
+    const event = {
+      watchId: watch.id, url: watch.url, label: watch.label || '', at: now,
+      summary: summarizeDiff(diff),
+      newDocuments: diff.newDocuments.map((d) => ({ href: d.href, text: d.text, ext: d.ext })),
+    };
+    return { entry, event, diff };
   } catch (e) {
-    watch.lastChecked = now;
-    watch.lastStatus = 'error';
-    watch.lastError = e.message || String(e);
-  } finally {
-    inFlight.delete(watch.id);
-    await db.save();
+    return { entry: { ...prev, lastChecked: now, lastStatus: 'error', lastError: e.message || String(e) }, event: null, diff: null };
   }
-  return watch;
 }
 
-let running = false;
-async function checkAll() {
-  if (running) return;
-  running = true;
-  try {
-    for (const w of [...db.get().watches]) {
-      if (!db.get().watches.includes(w)) continue;
-      await checkWatch(w);
-      await new Promise((r) => setTimeout(r, 1500));
-    }
-  } finally { running = false; }
-}
-
-function startScheduler() {
-  const mins = Math.max(1, Number(process.env.CHECK_INTERVAL_MINUTES) || 30);
-  console.log(`Checking watches every ${mins} minute(s)`);
-  const t = setInterval(() => { checkAll().catch((e) => console.error(e)); }, mins * 60 * 1000);
-  t.unref?.();
-  return t;
-}
-
-const newId = () => crypto.randomBytes(6).toString('hex');
-
-module.exports = { checkWatch, checkAll, startScheduler, getNotifyEmail, newId };
+module.exports = { checkWatch, fetchPage, MAX_STORED_LINES };

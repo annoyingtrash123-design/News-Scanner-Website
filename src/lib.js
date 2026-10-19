@@ -59,9 +59,24 @@ function splitUnits(lines) {
   return out;
 }
 
+const DOC_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'odt', 'ods', 'rtf', 'zip'];
+
+/** File extension (lowercase, no dot) if the URL path ends in a document type, else null. */
+function documentExt(href) {
+  let path;
+  try { path = new URL(href).pathname; } catch { path = String(href || '').split(/[?#]/)[0]; }
+  const m = path.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m && DOC_EXTS.includes(m[1]) ? m[1] : null;
+}
+
+function isDocumentLink(href) { return documentExt(href) !== null; }
+
 function computeDiff(prev, curr, cap = 20) {
   const prevLinks = new Set((prev.links || []).map((l) => l.href));
-  const newLinks = (curr.links || []).filter((l) => !prevLinks.has(l.href)).slice(0, cap);
+  const fresh = (curr.links || []).filter((l) => !prevLinks.has(l.href));
+  const newDocuments = fresh.filter((l) => isDocumentLink(l.href)).slice(0, 50)
+    .map((l) => ({ ...l, ext: documentExt(l.href) }));
+  const newLinks = fresh.filter((l) => !isDocumentLink(l.href)).slice(0, cap);
   const prevUnits = new Set(splitUnits(prev.lines || []));
   const seen = new Set();
   const addedText = [];
@@ -71,11 +86,13 @@ function computeDiff(prev, curr, cap = 20) {
     addedText.push(u.length > 300 ? u.slice(0, 297) + '...' : u);
     if (addedText.length >= cap) break;
   }
-  return { newLinks, addedText };
+  return { newDocuments, newLinks, addedText };
 }
 
 function summarizeDiff(d) {
   const bits = [];
+  const nd = (d.newDocuments || []).length;
+  if (nd) bits.push(`${nd} new document${nd > 1 ? 's' : ''}`);
   if (d.newLinks.length) bits.push(`${d.newLinks.length} new link${d.newLinks.length > 1 ? 's' : ''}`);
   if (d.addedText.length) bits.push(`${d.addedText.length} added text item${d.addedText.length > 1 ? 's' : ''}`);
   return bits.length ? bits.join(', ') : 'Content changed';
@@ -115,4 +132,4 @@ function validateUrl(input) {
   return { ok: true, url: u.href };
 }
 
-module.exports = { normalizeText, sha256, extractContent, splitUnits, computeDiff, summarizeDiff, escapeHtml, isBlockedHost, validateUrl };
+module.exports = { DOC_EXTS, documentExt, isDocumentLink, normalizeText, sha256, extractContent, splitUnits, computeDiff, summarizeDiff, escapeHtml, isBlockedHost, validateUrl };

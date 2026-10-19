@@ -13,10 +13,17 @@
     <p class="sub">Add pages to watch. You get an email when their content changes.</p>
   </header>
 
-  <section id="login" hidden>
-    <form id="login-form" class="stack">
-      <label class="field"><span>Password</span><input type="password" id="login-pw" autocomplete="current-password" required autofocus></label>
-      <div class="row"><button class="primary" type="submit">Sign in</button><span class="msg" id="login-msg"></span></div>
+  <section id="setup" hidden>
+    <h2>Connect to GitHub</h2>
+    <form id="setup-form" class="stack">
+      <label class="field"><span>Repository (owner/name)</span>
+        <input type="text" id="s-repo" placeholder="your-name/News-Scanner-Website" required autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Branch (leave empty for the default branch)</span>
+        <input type="text" id="s-branch" placeholder="main" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Fine-grained personal access token</span>
+        <input type="password" id="s-token" required autocomplete="off" spellcheck="false"></label>
+      <p class="hint">Create it at GitHub &rarr; Settings &rarr; Developer settings &rarr; Fine-grained tokens. Choose <strong>only this repository</strong>, with permissions <strong>Contents: Read and write</strong> and <strong>Actions: Read and write</strong>. The token is stored only in this browser and is sent only to api.github.com.</p>
+      <div class="row"><button class="primary" type="submit" id="s-btn">Connect</button><span class="msg" id="s-msg" role="status"></span></div>
     </form>
   </section>
 
@@ -30,17 +37,24 @@
         <input type="text" id="add-label" placeholder="Label (optional)" aria-label="Label" maxlength="100">
         <details>
           <summary>Advanced</summary>
-          <label class="field"><span>CSS selector (watch only part of the page)</span>
-            <input type="text" id="add-selector" placeholder="e.g. #releases-list or main .news-items"></label>
+          <div class="stack">
+            <label class="field"><span>CSS selector (watch only part of the page)</span>
+              <input type="text" id="add-selector" placeholder="e.g. #releases-list or main .news-items"></label>
+            <label class="check"><input type="checkbox" id="add-docs"> Only alert on new documents (PDF, Word, Excel, ...)</label>
+          </div>
         </details>
         <p class="msg" id="add-msg" role="status"></p>
       </form>
     </section>
 
     <section>
-      <h2>Watching</h2>
+      <div class="row between">
+        <h2>Watching</h2>
+        <span class="row"><span class="msg" id="refresh-msg"></span><button class="link" id="refresh" type="button">Refresh</button></span>
+      </div>
       <ul id="watches" class="list"></ul>
       <p class="empty" id="watches-empty" hidden>Nothing yet. Add a URL above.</p>
+      <p class="hint">Results update after the GitHub Action runs, which can take a few minutes. This page refreshes itself every 2 minutes.</p>
     </section>
 
     <section>
@@ -56,13 +70,14 @@
           <input type="email" id="notify-email" placeholder="you@example.com"></label>
         <div class="row">
           <button class="primary" type="submit">Save</button>
-          <button type="button" class="link" id="test-email">Send test email</button>
+          <button type="button" class="link" id="check-all">Check all now</button>
+          <a class="link-a" id="runs-link" target="_blank" rel="noopener">View Action runs</a>
           <span class="msg" id="settings-msg" role="status"></span>
         </div>
       </form>
     </section>
 
-    <footer><button class="link" id="logout" hidden>Sign out</button></footer>
+    <footer><span class="hint" id="repo-info"></span> <button class="link" id="disconnect" type="button">Disconnect</button></footer>
   </div>
 </main>
 <script src="app.js"></script>
