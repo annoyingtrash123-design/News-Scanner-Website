@@ -1,1 +1,13 @@
-{"notifyEmail":"","watches":[]}
+{
+  "notifyEmail": "",
+  "watches": [
+    {
+      "id": "79433f7b-7de5-4b97-a5b0-b8902824dc92",
+      "url": "https://resources.vic.gov.au/about-us/news",
+      "label": "Vic Resources – News",
+      "selector": "",
+      "documentsOnly": false,
+      "createdAt": "2026-10-19T22:45:56.390Z"
+    }
+  ]
+}
