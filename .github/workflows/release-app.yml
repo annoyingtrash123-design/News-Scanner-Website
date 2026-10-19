@@ -1,0 +1,88 @@
+name: Release desktop app
+
+on:
+  push:
+    paths:
+      - 'app/**'
+      - '.github/workflows/release-app.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64, os: ubuntu-latest, target: x86_64-unknown-linux-gnu, ext: tar.gz }
+          - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, ext: zip }
+          - { name: macos-arm64, os: macos-latest, target: aarch64-apple-darwin, ext: tar.gz }
+          - { name: macos-x64, os: macos-latest, target: x86_64-apple-darwin, ext: tar.gz }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app -> target
+          key: ${{ matrix.target }}
+      - name: Test
+        if: matrix.name == 'linux-x64'
+        working-directory: app
+        run: cargo test --release
+      - name: Build
+        working-directory: app
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Package (unix)
+        if: matrix.ext == 'tar.gz'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp app/target/${{ matrix.target }}/release/news-scanner dist/
+          cp app/README.md dist/README.md
+          chmod +x dist/news-scanner
+          tar -C dist -czf news-scanner-${{ matrix.name }}.tar.gz news-scanner README.md
+      - name: Package (windows)
+        if: matrix.ext == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item app/target/${{ matrix.target }}/release/news-scanner.exe dist/
+          Copy-Item app/README.md dist/README.md
+          Compress-Archive -Path dist/news-scanner.exe, dist/README.md -DestinationPath news-scanner-${{ matrix.name }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: news-scanner-${{ matrix.name }}
+          path: news-scanner-${{ matrix.name }}.${{ matrix.ext }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Move app-latest tag to this commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f app-latest
+          git push -f origin app-latest
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-latest
+          name: News Scanner (latest build)
+          make_latest: true
+          body: |
+            Download the file for your computer, unpack it, and double-click **news-scanner**.
+            See README.md inside the download for help.
+            Built from commit ${{ github.sha }}.
+          files: artifacts/*
