@@ -183,6 +183,49 @@ pub fn document_ext(href: &str) -> Option<String> {
     DOC_EXTS.contains(&ext).then(|| ext.to_string())
 }
 
+/// Added-text units shorter than this are treated as noise (labels, counters, dates...).
+pub const MIN_MEANINGFUL_CHARS: usize = 20;
+
+const NOISE_WORDS: &[&str] = &[
+    "jan", "january", "feb", "february", "mar", "march", "apr", "april", "may", "jun", "june", "jul", "july",
+    "aug", "august", "sep", "sept", "september", "oct", "october", "nov", "november", "dec", "december",
+    "mon", "monday", "tue", "tues", "tuesday", "wed", "wednesday", "thu", "thur", "thurs", "thursday", "fri",
+    "friday", "sat", "saturday", "sun", "sunday", "ago", "second", "seconds", "sec", "secs", "minute", "minutes",
+    "min", "mins", "hour", "hours", "hr", "hrs", "day", "days", "week", "weeks", "month", "months", "year",
+    "years", "yesterday", "today", "now", "just", "an", "a", "at",
+];
+const NOISE_WORDS_2: &[&str] = &[
+    "on", "of", "the", "updated", "posted", "published", "last", "modified", "released", "date", "am", "pm",
+    "aest", "aedt",
+];
+
+/// True if the text is only dates / times / "x minutes ago"-style words.
+pub fn is_datetime_like(s: &str) -> bool {
+    let mut any = false;
+    for tok in s.split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '|')) {
+        let w = tok.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+        if w.is_empty() {
+            continue;
+        }
+        any = true;
+        if w.chars().any(|c| c.is_ascii_digit()) {
+            let rest: String = w.chars().filter(|c| !c.is_ascii_digit() && !matches!(c, ':' | '/' | '-' | '.')).collect();
+            if !matches!(rest.as_str(), "" | "st" | "nd" | "rd" | "th" | "am" | "pm" | "h" | "m" | "s" | "hrs" | "min" | "mins") {
+                return false;
+            }
+        } else if !NOISE_WORDS.contains(&w.as_str()) && !NOISE_WORDS_2.contains(&w.as_str()) {
+            return false;
+        }
+    }
+    any
+}
+
+/// Added text that should not, on its own, count as a change worth reporting.
+pub fn is_noise_text(s: &str) -> bool {
+    let t = s.trim();
+    t.chars().count() < MIN_MEANINGFUL_CHARS || is_datetime_like(t)
+}
+
 pub fn compute_diff(
     prev_lines: &[String],
     prev_links: &[Link],
@@ -209,7 +252,7 @@ pub fn compute_diff(
     let mut seen = HashSet::new();
     let mut added_text = Vec::new();
     for u in split_units(curr_lines) {
-        if prev_units.contains(&u) || !seen.insert(u.clone()) {
+        if prev_units.contains(&u) || is_noise_text(&u) || !seen.insert(u.clone()) {
             continue;
         }
         added_text.push(if u.chars().count() > 300 {
@@ -334,7 +377,7 @@ mod tests {
     #[test]
     fn diff_finds_new_docs_links_text() {
         let pl = vec!["Hello world. Old news here.".to_string()];
-        let cl = vec!["Hello world. Old news here. Brand new item.".to_string()];
+        let cl = vec!["Hello world. Old news here. Brand new item for the site.".to_string()];
         let d = compute_diff(
             &pl,
             &[l("https://a.org/old.pdf")],
@@ -346,8 +389,26 @@ mod tests {
         assert_eq!(d.new_documents[0].ext, "pdf");
         assert_eq!(d.new_links.len(), 1);
         assert_eq!(d.new_links[0].href, "https://a.org/news/2");
-        assert_eq!(d.added_text, vec!["Brand new item.".to_string()]);
+        assert_eq!(d.added_text, vec!["Brand new item for the site.".to_string()]);
         assert_eq!(summarize_diff(&d), "1 new document, 1 new link, 1 added text item");
+    }
+
+    #[test]
+    fn noise_filter() {
+        for n in [
+            "Monday, 12 March 2025", "3 minutes ago", "Last updated 2 hours ago", "12:30 pm AEST", "2025-03-12",
+            "Published: 12 March 2025 10:15", "short text", "Read more", "Yesterday at 9:30am", "a few seconds ago",
+        ] {
+            assert!(is_noise_text(n), "{n} should be noise");
+        }
+        for m in [
+            "Minister announces new critical minerals funding round",
+            "Applications close 12 March 2025 for the grant program",
+        ] {
+            assert!(!is_noise_text(m), "{m} should be meaningful");
+        }
+        let d = compute_diff(&["Old line of text here that stays.".into()], &[], &["Old line of text here that stays.".into(), "Updated 5 minutes ago".into(), "Monday, 12 March 2025".into(), "Tiny".into()], &[], 20);
+        assert!(d.added_text.is_empty());
     }
 
     #[test]

@@ -46,6 +46,8 @@ pub struct Watch {
     pub selector: String,
     #[serde(default)]
     pub documents_only: bool,
+    #[serde(default)]
+    pub category: String,
     pub created_at: String,
 }
 
@@ -70,6 +72,10 @@ pub struct Event {
     pub at: String,
     pub summary: String,
     pub new_documents: Vec<Doc>,
+    #[serde(default)]
+    pub new_links: Vec<Link>,
+    #[serde(default)]
+    pub added_text: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -79,6 +85,21 @@ pub struct Data {
     pub watches: Vec<Watch>,
     pub state: HashMap<String, WatchState>,
     pub events: Vec<Event>,
+    /// Ids of built-in watches already offered to this user (so removed ones never return).
+    pub seeded_defaults: Vec<String>,
+    /// Events with `at` later than this are "new since your last visit".
+    pub last_seen_at: Option<String>,
+}
+
+/// Progress of the current (or last) full run, served at GET /api/status.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunStatus {
+    pub running: bool,
+    pub done: usize,
+    pub total: usize,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
 }
 
 impl Data {
@@ -117,6 +138,7 @@ pub struct App {
     pub path: Arc<PathBuf>,
     /// Held while checks run so runs never overlap.
     pub run_lock: Arc<tokio::sync::Mutex<()>>,
+    pub status: Arc<Mutex<RunStatus>>,
     pub client: reqwest::Client,
     pub app_password: Option<Arc<String>>,
     pub loopback_only: bool,

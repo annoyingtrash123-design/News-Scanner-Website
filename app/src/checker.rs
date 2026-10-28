@@ -1,7 +1,15 @@
-//! Fetch + check logic (port of checker.js) and the sequential run loop.
+//! Fetch + check logic and the bounded-concurrency run loop.
 use crate::core::*;
 use crate::mailer;
 use crate::store::{App, Event, Watch, WatchState};
+use std::collections::HashMap;
+use std::future::Future;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
+
+/// At most this many pages are fetched at once.
+pub const MAX_CONCURRENT: usize = 4;
 
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 const MAX_BYTES: usize = 5 * 1024 * 1024;
@@ -110,6 +118,9 @@ pub fn process(watch: &Watch, prev: &WatchState, html: &str, final_url: &str, no
     if watch.documents_only && diff.new_documents.is_empty() {
         return Ok(Outcome { entry, event: None, diff: Some(diff) }); // stored, but no alert
     }
+    if diff.new_documents.is_empty() && diff.new_links.is_empty() && diff.added_text.is_empty() {
+        return Ok(Outcome { entry, event: None, diff: Some(diff) }); // only noise (dates, counters...)
+    }
     entry.last_changed = Some(now.into());
     let event = Event {
         watch_id: watch.id.clone(),
@@ -118,6 +129,8 @@ pub fn process(watch: &Watch, prev: &WatchState, html: &str, final_url: &str, no
         at: now.into(),
         summary: summarize_diff(&diff),
         new_documents: diff.new_documents.clone(),
+        new_links: diff.new_links.clone(),
+        added_text: diff.added_text.clone(),
     };
     Ok(Outcome { entry, event: Some(event), diff: Some(diff) })
 }
@@ -142,47 +155,103 @@ pub async fn check_watch(client: &reqwest::Client, watch: &Watch, prev: &WatchSt
     })
 }
 
-/// Check the given watches (or all) one after another. Runs never overlap.
-pub async fn run_checks(app: &App, only: Option<Vec<String>>) {
-    let _guard = app.run_lock.lock().await;
-    let watches: Vec<Watch> = app.read(|d| {
-        d.watches.iter().filter(|w| only.as_ref().map_or(true, |ids| ids.contains(&w.id))).cloned().collect()
-    });
-    for w in watches {
-        let prev = app.read(|d| d.state.get(&w.id).cloned()).unwrap_or_default();
-        let out = check_watch(&app.client, &w, &prev).await;
-        let kept = app.with_data(|d| {
-            if !d.watches.iter().any(|x| x.id == w.id) {
-                return false; // removed while checking
-            }
-            d.state.insert(w.id.clone(), out.entry.clone());
-            if let Some(ev) = &out.event {
-                d.events.insert(0, ev.clone());
-                d.events.truncate(100);
-            }
-            true
+/// Run `f` over every item with at most `limit` running at once and at most one at a time
+/// per host key. Returns when all are finished.
+pub async fn for_each_bounded<I, F, Fut>(items: Vec<(String, I)>, limit: usize, f: F)
+where
+    I: Send + 'static,
+    F: Fn(I) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let global = Arc::new(Semaphore::new(limit.max(1)));
+    let mut hosts: HashMap<String, Arc<Semaphore>> = HashMap::new();
+    let mut set = JoinSet::new();
+    for (host, item) in items {
+        let host_sem = hosts.entry(host).or_insert_with(|| Arc::new(Semaphore::new(1))).clone();
+        let global = global.clone();
+        let f = f.clone();
+        set.spawn(async move {
+            // Host first, so a task queued behind a busy host never hogs a global slot.
+            let _h = host_sem.acquire_owned().await;
+            let _g = global.acquire_owned().await;
+            f(item).await;
         });
-        if !kept {
-            continue;
+    }
+    while set.join_next().await.is_some() {}
+}
+
+fn host_key(url: &str) -> String {
+    url::Url::parse(url).ok().and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase())).unwrap_or_default()
+}
+
+async fn check_and_store(app: &App, w: Watch) {
+    let prev = app.read(|d| d.state.get(&w.id).cloned()).unwrap_or_default();
+    let out = check_watch(&app.client, &w, &prev).await;
+    let kept = app.with_data(|d| {
+        if !d.watches.iter().any(|x| x.id == w.id) {
+            return false; // removed while checking
         }
-        if let (Some(ev), Some(diff)) = (&out.event, &out.diff) {
-            let settings = app.read(|d| d.settings.clone());
-            if settings.notify_email.trim().is_empty() || settings.smtp.host.trim().is_empty() {
-                println!("Change detected on {} ({}). Email not sent: notification email / SMTP not configured.", w.url, ev.summary);
-            } else {
-                let mail = mailer::build_change_email(&w, diff, &ev.at);
-                match mailer::send_mail(&settings, &settings.notify_email, mail).await {
-                    Ok(()) => println!("Emailed update for {}", w.url),
-                    Err(e) => eprintln!("Could not send email for {}: {e}", w.url),
-                }
+        d.state.insert(w.id.clone(), out.entry.clone());
+        if let Some(ev) = &out.event {
+            d.events.insert(0, ev.clone());
+            d.events.truncate(300);
+        }
+        true
+    });
+    if !kept {
+        return;
+    }
+    if let (Some(ev), Some(diff)) = (&out.event, &out.diff) {
+        let settings = app.read(|d| d.settings.clone());
+        // Email is optional: stay silent when it is not configured.
+        if !settings.notify_email.trim().is_empty() && mailer::smtp_configured(&settings) {
+            let mail = mailer::build_change_email(&w, diff, &ev.at);
+            match mailer::send_mail(&settings, &settings.notify_email, mail).await {
+                Ok(()) => println!("Emailed update for {}", w.url),
+                Err(e) => eprintln!("Could not send email for {}: {e}", w.url),
             }
         }
     }
 }
 
-/// Background scheduler: waits for the configured interval between full runs.
+/// Check the given watches (or all) with bounded concurrency. Runs never overlap.
+pub async fn run_checks(app: &App, only: Option<Vec<String>>) {
+    let _guard = app.run_lock.lock().await;
+    let full = only.is_none();
+    let watches: Vec<Watch> = app.read(|d| {
+        d.watches.iter().filter(|w| only.as_ref().map_or(true, |ids| ids.contains(&w.id))).cloned().collect()
+    });
+    if full {
+        *app.status.lock().unwrap_or_else(|e| e.into_inner()) = crate::store::RunStatus {
+            running: true,
+            done: 0,
+            total: watches.len(),
+            started_at: Some(now_string()),
+            finished_at: None,
+        };
+    }
+    let items: Vec<(String, Watch)> = watches.into_iter().map(|w| (host_key(&w.url), w)).collect();
+    let app2 = app.clone();
+    for_each_bounded(items, MAX_CONCURRENT, move |w| {
+        let app = app2.clone();
+        async move {
+            check_and_store(&app, w).await;
+            if full {
+                app.status.lock().unwrap_or_else(|e| e.into_inner()).done += 1;
+            }
+        }
+    })
+    .await;
+    if full {
+        let mut st = app.status.lock().unwrap_or_else(|e| e.into_inner());
+        st.running = false;
+        st.finished_at = Some(now_string());
+    }
+}
+
+/// Background scheduler: full check shortly after launch, then every configured interval.
 pub async fn scheduler(app: App) {
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     loop {
         run_checks(&app, None).await;
         let started = std::time::Instant::now();
@@ -201,7 +270,7 @@ mod tests {
     use super::*;
 
     fn watch(docs_only: bool) -> Watch {
-        Watch { id: "w1".into(), url: "https://a.org/news".into(), label: "A".into(), selector: String::new(), documents_only: docs_only, created_at: "t".into() }
+        Watch { id: "w1".into(), url: "https://a.org/news".into(), label: "A".into(), selector: String::new(), documents_only: docs_only, category: String::new(), created_at: "t".into() }
     }
     const P1: &str = "<body><p>Hello world.</p><a href='/a.pdf'>A</a></body>";
     const P2: &str = "<body><p>Hello world. Something new here.</p><a href='/a.pdf'>A</a><a href='/b.pdf'>B</a></body>";
@@ -231,6 +300,57 @@ mod tests {
         assert_ne!(text_only.entry.last_hash, base.entry.last_hash); // state still advances
         let with_doc = process(&w, &base.entry, P2, &w.url, "t3").unwrap();
         assert!(with_doc.event.is_some());
+    }
+
+    #[test]
+    fn noise_only_change_makes_no_event_but_updates_state() {
+        let w = watch(false);
+        let a = "<body><p>Hello world, this is a long enough sentence.</p><p>Updated 3 minutes ago</p></body>";
+        let b = "<body><p>Hello world, this is a long enough sentence.</p><p>Updated 9 minutes ago</p><p>Monday, 12 March 2025</p></body>";
+        let base = process(&w, &WatchState::default(), a, &w.url, "t1").unwrap();
+        let ch = process(&w, &base.entry, b, &w.url, "t2").unwrap();
+        assert!(ch.event.is_none());
+        assert!(ch.entry.last_changed.is_none());
+        assert_ne!(ch.entry.last_hash, base.entry.last_hash);
+        assert!(ch.entry.lines.iter().any(|l| l.contains("9 minutes")));
+        // meaningful text does create an event
+        let c = "<body><p>Hello world, this is a long enough sentence.</p><p>Minister announces a brand new funding program</p></body>";
+        let ev = process(&w, &ch.entry, c, &w.url, "t3").unwrap().event.unwrap();
+        assert_eq!(ev.added_text.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn bounded_concurrency_global_and_per_host() {
+        use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+        let total = Arc::new(AtomicUsize::new(0));
+        let max_total = Arc::new(AtomicUsize::new(0));
+        let per: Arc<HashMap<String, (AtomicUsize, AtomicUsize)>> = Arc::new(
+            ["a", "b", "c"].iter().map(|h| (h.to_string(), (AtomicUsize::new(0), AtomicUsize::new(0)))).collect(),
+        );
+        let done = Arc::new(AtomicUsize::new(0));
+        let items: Vec<(String, String)> = (0..18).map(|i| { let h = ["a", "b", "c"][i % 3].to_string(); (h.clone(), h) }).collect();
+        let (t, mt, p, d) = (total.clone(), max_total.clone(), per.clone(), done.clone());
+        for_each_bounded(items, 4, move |h| {
+            let (t, mt, p, d) = (t.clone(), mt.clone(), p.clone(), d.clone());
+            async move {
+                let n = t.fetch_add(1, SeqCst) + 1;
+                mt.fetch_max(n, SeqCst);
+                let (cur, max) = &p[&h];
+                let c = cur.fetch_add(1, SeqCst) + 1;
+                max.fetch_max(c, SeqCst);
+                tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+                cur.fetch_sub(1, SeqCst);
+                t.fetch_sub(1, SeqCst);
+                d.fetch_add(1, SeqCst);
+            }
+        })
+        .await;
+        assert_eq!(done.load(SeqCst), 18);
+        assert!(max_total.load(SeqCst) <= 4);
+        assert!(max_total.load(SeqCst) >= 2, "should run in parallel across hosts");
+        for (_, (_, max)) in per.iter() {
+            assert_eq!(max.load(SeqCst), 1, "never two at once on one host");
+        }
     }
 
     #[test]

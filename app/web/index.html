@@ -9,76 +9,128 @@
 <body>
 <main>
   <header>
-    <h1>News Scanner</h1>
-    <p class="sub">Add pages to watch. You get an email when their content changes or a new document appears.</p>
+    <div class="row between">
+      <h1>News Scanner</h1>
+      <button class="primary" id="check-all" type="button">Check all now</button>
+    </div>
+    <div class="progress" id="progress" hidden>
+      <div class="progress-text" id="progress-text" role="status"></div>
+      <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" class="tab" id="tab-updates" data-tab="updates">Updates</button>
+      <button type="button" role="tab" class="tab" id="tab-sites" data-tab="sites">Sites</button>
+    </nav>
   </header>
 
-  <section>
-    <form id="add-form" class="stack">
-      <div class="row grow">
-        <input type="url" id="add-url" placeholder="https://example.gov/press-releases" required aria-label="Page URL">
-        <button class="primary" type="submit" id="add-btn">Watch</button>
+  <div id="view-updates">
+    <section>
+      <div class="row between">
+        <h2>New since your last visit</h2>
+        <button class="link" id="mark-seen" type="button" hidden>Mark all as read</button>
       </div>
-      <input type="text" id="add-label" placeholder="Label (optional)" aria-label="Label" maxlength="100">
-      <details>
-        <summary>Advanced</summary>
-        <div class="stack">
-          <label class="field"><span>CSS selector (watch only part of the page)</span>
-            <input type="text" id="add-selector" placeholder="e.g. #releases-list or main .news-items" autocomplete="off" spellcheck="false"></label>
-          <label class="check"><input type="checkbox" id="add-docs"> Only alert on new documents (PDF, Word, Excel, ...)</label>
-        </div>
+      <div id="new-items"></div>
+      <p class="empty" id="new-empty" hidden></p>
+    </section>
+
+    <section>
+      <details id="earlier-box">
+        <summary>Earlier updates <span id="earlier-count"></span></summary>
+        <ul id="earlier" class="list"></ul>
+        <p class="empty" id="earlier-empty" hidden>Nothing earlier yet.</p>
       </details>
-      <p class="msg" id="add-msg" role="status"></p>
-    </form>
-  </section>
+    </section>
 
-  <section>
-    <div class="row between">
-      <h2>Watching</h2>
-      <span class="row"><span class="msg" id="refresh-msg"></span><button class="link" id="check-all" type="button">Check all now</button></span>
-    </div>
-    <ul id="watches" class="list"></ul>
-    <p class="empty" id="watches-empty" hidden>Nothing yet. Add a URL above.</p>
-    <p class="hint">The first check of a page only records what is there; you are alerted about changes after that. Checks run while this app is open.</p>
-  </section>
+    <section>
+      <details id="errors-box" hidden>
+        <summary id="errors-summary">Couldn't check</summary>
+        <p class="hint">These sites did not load. Many block automated access (bot protection) or only show content with JavaScript.</p>
+        <ul id="errors" class="list compact"></ul>
+      </details>
+    </section>
+  </div>
 
-  <section>
-    <h2>Recent updates</h2>
-    <ul id="events" class="list"></ul>
-    <p class="empty" id="events-empty" hidden>No changes detected yet.</p>
-  </section>
+  <div id="view-sites" hidden>
+    <section>
+      <div class="row between">
+        <h2>Watched sites</h2>
+        <span class="row">
+          <button class="link" id="copy-list" type="button">Copy list</button>
+          <button class="link" id="export-csv" type="button">Export CSV</button>
+        </span>
+      </div>
+      <p class="totals" id="totals"></p>
+      <input type="search" id="filter" placeholder="Filter sites..." aria-label="Filter sites" autocomplete="off">
+      <p class="msg" id="list-msg" role="status"></p>
+      <div id="directory"></div>
+      <p class="empty" id="watches-empty" hidden>Nothing matches.</p>
+    </section>
 
-  <section>
-    <h2>Settings</h2>
-    <form id="settings-form" class="stack">
-      <label class="field"><span>Notification email (where alerts are sent)</span>
-        <input type="email" id="notify-email" placeholder="you@example.com"></label>
-      <p class="hint">To send email, fill in your mail provider below. For Gmail: host <strong>smtp.gmail.com</strong>, port <strong>465</strong>, security <strong>TLS</strong>, your Gmail address as username, and an <strong>app password</strong> (Google Account &rarr; Security &rarr; 2-Step Verification &rarr; App passwords) as the password.</p>
-      <div class="grid">
-        <label class="field"><span>SMTP host</span><input type="text" id="smtp-host" placeholder="smtp.gmail.com" autocomplete="off" spellcheck="false"></label>
-        <label class="field"><span>Port</span><input type="number" id="smtp-port" min="1" max="65535" placeholder="465"></label>
-      </div>
-      <label class="field"><span>Security</span>
-        <select id="smtp-security">
-          <option value="tls">TLS (port 465)</option>
-          <option value="starttls">STARTTLS (port 587)</option>
-          <option value="none">None (not recommended)</option>
-        </select></label>
-      <div class="grid3">
-        <label class="field"><span>Username</span><input type="text" id="smtp-user" autocomplete="off" spellcheck="false"></label>
-        <label class="field"><span>Password</span><input type="password" id="smtp-pass" autocomplete="new-password"></label>
-      </div>
-      <label class="field"><span>From address (defaults to the username)</span>
-        <input type="text" id="smtp-from" placeholder="you@gmail.com" autocomplete="off" spellcheck="false"></label>
-      <label class="field"><span>Check every (minutes, at least 5)</span>
-        <input type="number" id="interval" min="5" max="10080" step="1"></label>
-      <div class="row">
-        <button class="primary" type="submit" id="save-btn">Save</button>
-        <button type="button" class="link" id="test-email">Send test email</button>
-        <span class="msg" id="settings-msg" role="status"></span>
-      </div>
-    </form>
-  </section>
+    <section>
+      <details>
+        <summary>Add a site</summary>
+        <form id="add-form" class="stack">
+          <div class="row grow">
+            <input type="url" id="add-url" placeholder="https://example.gov/press-releases" required aria-label="Page URL">
+            <button class="primary" type="submit" id="add-btn">Watch</button>
+          </div>
+          <div class="grid">
+            <input type="text" id="add-label" placeholder="Label (optional)" aria-label="Label" maxlength="100">
+            <select id="add-category" aria-label="Category"></select>
+          </div>
+          <details>
+            <summary>Advanced</summary>
+            <div class="stack">
+              <label class="field"><span>CSS selector (watch only part of the page)</span>
+                <input type="text" id="add-selector" placeholder="e.g. #releases-list or main .news-items" autocomplete="off" spellcheck="false"></label>
+              <label class="check"><input type="checkbox" id="add-docs"> Only alert on new documents (PDF, Word, Excel, ...)</label>
+            </div>
+          </details>
+          <p class="msg" id="add-msg" role="status"></p>
+        </form>
+      </details>
+    </section>
+
+    <section>
+      <details>
+        <summary>Settings</summary>
+        <form id="settings-form" class="stack">
+          <label class="field"><span>Check every (minutes, at least 5)</span>
+            <input type="number" id="interval" min="5" max="10080" step="1"></label>
+          <details>
+            <summary>Email alerts (optional)</summary>
+            <div class="stack">
+              <p class="hint">Not needed. Changes always appear on the Updates tab. To also get emails, fill in your mail provider. For Gmail: host <strong>smtp.gmail.com</strong>, port <strong>465</strong>, security <strong>TLS</strong>, your Gmail address as username, and an <strong>app password</strong> as the password.</p>
+              <label class="field"><span>Notification email (where alerts are sent)</span>
+                <input type="email" id="notify-email" placeholder="you@example.com"></label>
+              <div class="grid">
+                <label class="field"><span>SMTP host</span><input type="text" id="smtp-host" placeholder="smtp.gmail.com" autocomplete="off" spellcheck="false"></label>
+                <label class="field"><span>Port</span><input type="number" id="smtp-port" min="1" max="65535" placeholder="465"></label>
+              </div>
+              <label class="field"><span>Security</span>
+                <select id="smtp-security">
+                  <option value="tls">TLS (port 465)</option>
+                  <option value="starttls">STARTTLS (port 587)</option>
+                  <option value="none">None (not recommended)</option>
+                </select></label>
+              <div class="grid3">
+                <label class="field"><span>Username</span><input type="text" id="smtp-user" autocomplete="off" spellcheck="false"></label>
+                <label class="field"><span>Password</span><input type="password" id="smtp-pass" autocomplete="new-password"></label>
+              </div>
+              <label class="field"><span>From address (defaults to the username)</span>
+                <input type="text" id="smtp-from" placeholder="you@gmail.com" autocomplete="off" spellcheck="false"></label>
+              <div><button type="button" class="link" id="test-email">Send test email</button></div>
+            </div>
+          </details>
+          <div class="row">
+            <button class="primary" type="submit" id="save-btn">Save</button>
+            <button type="button" class="link" id="reset-defaults">Reset to built-in list</button>
+            <span class="msg" id="settings-msg" role="status"></span>
+          </div>
+        </form>
+      </details>
+    </section>
+  </div>
 </main>
 <script src="/app.js"></script>
 </body>

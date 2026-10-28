@@ -135,7 +135,7 @@ mod tests {
     use super::*;
 
     fn w() -> Watch {
-        Watch { id: "1".into(), url: "https://a.org/x".into(), label: String::new(), selector: String::new(), documents_only: false, created_at: "t".into() }
+        Watch { id: "1".into(), url: "https://a.org/x".into(), label: String::new(), selector: String::new(), documents_only: false, category: String::new(), created_at: "t".into() }
     }
 
     #[test]

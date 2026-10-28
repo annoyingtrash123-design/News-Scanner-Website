@@ -36,6 +36,9 @@ pub fn router(app: App) -> Router {
         .route("/api/watches/:id/check", post(check_one))
         .route("/api/check-all", post(check_all))
         .route("/api/events", get(list_events))
+        .route("/api/status", get(get_status))
+        .route("/api/seen", get(get_seen).post(mark_seen))
+        .route("/api/reset-defaults", post(reset_defaults))
         .route("/api/settings", get(get_settings).put(put_settings))
         .route("/api/test-email", post(test_email))
         .route("/login", get(login_page).post(login_submit))
@@ -145,7 +148,8 @@ fn watch_view(d: &crate::store::Data, w: &Watch) -> Value {
     let s = d.state.get(&w.id).cloned().unwrap_or_default();
     json!({
         "id": w.id, "url": w.url, "label": w.label, "selector": w.selector,
-        "documentsOnly": w.documents_only, "createdAt": w.created_at,
+        "documentsOnly": w.documents_only,
+        "category": if w.category.is_empty() { crate::defaults::OTHER } else { w.category.as_str() }, "createdAt": w.created_at,
         "lastChecked": s.last_checked, "lastChanged": s.last_changed,
         "lastStatus": s.last_status, "lastError": s.last_error,
     })
@@ -165,6 +169,8 @@ struct NewWatch {
     selector: String,
     #[serde(default)]
     documents_only: bool,
+    #[serde(default)]
+    category: String,
 }
 
 async fn add_watch(State(app): State<App>, Json(b): Json<NewWatch>) -> Result<(StatusCode, Json<Value>), ApiError> {
@@ -180,6 +186,7 @@ async fn add_watch(State(app): State<App>, Json(b): Json<NewWatch>) -> Result<(S
         label,
         selector,
         documents_only: b.documents_only,
+        category: if crate::defaults::CATEGORIES.contains(&b.category.as_str()) { b.category.clone() } else { crate::defaults::OTHER.to_string() },
         created_at: now_string(),
     };
     let created = app.with_data(|d| {
@@ -227,6 +234,31 @@ async fn check_all(State(app): State<App>) -> (StatusCode, Json<Value>) {
 
 async fn list_events(State(app): State<App>) -> Json<Value> {
     Json(app.read(|d| serde_json::to_value(&d.events).unwrap_or(json!([]))))
+}
+
+async fn get_status(State(app): State<App>) -> Json<Value> {
+    let st = app.status.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    Json(serde_json::to_value(st).unwrap_or(json!({})))
+}
+
+async fn get_seen(State(app): State<App>) -> Json<Value> {
+    Json(json!({ "lastSeenAt": app.read(|d| d.last_seen_at.clone()) }))
+}
+
+async fn mark_seen(State(app): State<App>) -> Json<Value> {
+    let now = now_string();
+    app.with_data(|d| d.last_seen_at = Some(now.clone()));
+    Json(json!({ "lastSeenAt": now }))
+}
+
+async fn reset_defaults(State(app): State<App>) -> Json<Value> {
+    let now = now_string();
+    let added = app.with_data(|d| crate::defaults::reset(d, &now));
+    if !added.is_empty() {
+        let ids = added.clone();
+        tokio::spawn(async move { run_checks(&app, Some(ids)).await });
+    }
+    Json(json!({ "added": added.len() }))
 }
 
 // ---------- settings ----------

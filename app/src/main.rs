@@ -1,5 +1,6 @@
 mod checker;
 mod core;
+mod defaults;
 mod mailer;
 mod server;
 mod store;
@@ -42,13 +43,22 @@ async fn run() -> anyhow::Result<()> {
     }
 
     let path = store::data_file()?;
-    let data = store::Data::load(&path);
+    let mut data = store::Data::load(&path);
+    let now = checker::now_string();
+    defaults::seed(&mut data, &now);
+    if data.last_seen_at.is_none() {
+        data.last_seen_at = Some(now); // first launch: nothing counts as new yet
+    }
+    if let Err(e) = data.save(&path) {
+        eprintln!("Could not save data: {e}");
+    }
     let app_password = std::env::var("APP_PASSWORD").ok().filter(|p| !p.is_empty()).map(Arc::new);
     let loopback_only = matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1");
     let app = store::App {
         data: Arc::new(Mutex::new(data)),
         path: Arc::new(path.clone()),
         run_lock: Arc::new(tokio::sync::Mutex::new(())),
+        status: Arc::new(Mutex::new(store::RunStatus::default())),
         client: checker::build_client(),
         app_password,
         loopback_only,
