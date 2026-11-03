@@ -1,8 +1,7 @@
 name: Check watched pages
 
 on:
-  schedule:
-    - cron: "*/30 * * * *"
+  # Scheduled runs switched off: the desktop app / Chrome extension replaced this checker.
   workflow_dispatch:
     inputs:
       watch_id:

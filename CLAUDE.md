@@ -60,7 +60,8 @@ anything Claude reports about scans or the watch list.
   and the two must match (enforced by `extension/tests/defaults.test.js`). Never
   change a shipped id; add new entries at the end.
 - `src/`, `scripts/`, `data/`, `.github/workflows/check.yml`: older Node +
-  GitHub Actions checker (always-on, email via SMTP secrets). Not in active use.
+  GitHub Actions checker (email via SMTP secrets). Its schedule is switched off;
+  it only runs if triggered manually. Not in active use.
 - `.github/workflows/release-app.yml`: builds app binaries and the extension
   zip, and publishes them to the `app-latest` release.
 
