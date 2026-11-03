@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>News Scanner</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="row between">
+      <h1>News Scanner</h1>
+      <button class="primary" id="check-all" type="button">Check all now</button>
+    </div>
+    <div class="progress" id="progress" hidden>
+      <div class="progress-text" id="progress-text" role="status"></div>
+      <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" class="tab" id="tab-updates" data-tab="updates">Updates</button>
+      <button type="button" role="tab" class="tab" id="tab-sites" data-tab="sites">Sites</button>
+    </nav>
+  </header>
+
+  <div id="view-updates">
+    <section>
+      <div class="row between">
+        <h2>New since your last visit</h2>
+        <button class="link" id="mark-seen" type="button" hidden>Mark all as read</button>
+      </div>
+      <div id="new-items"></div>
+      <p class="empty" id="new-empty" hidden></p>
+    </section>
+
+    <section>
+      <details id="earlier-box">
+        <summary>Earlier updates <span id="earlier-count"></span></summary>
+        <ul id="earlier" class="list"></ul>
+        <p class="empty" id="earlier-empty" hidden>Nothing earlier yet.</p>
+      </details>
+    </section>
+
+    <section>
+      <details id="errors-box" hidden>
+        <summary id="errors-summary">Couldn't check</summary>
+        <p class="hint">These sites did not load. Many block automated access (bot protection) or only show content with JavaScript. For bot protection, open the site once in Chrome, then press Check all now.</p>
+        <ul id="errors" class="list compact"></ul>
+      </details>
+    </section>
+  </div>
+
+  <div id="view-sites" hidden>
+    <section>
+      <div class="row between">
+        <h2>Watched sites</h2>
+        <span class="row">
+          <button class="link" id="copy-list" type="button">Copy list</button>
+          <button class="link" id="export-csv" type="button">Export CSV</button>
+        </span>
+      </div>
+      <p class="totals" id="totals"></p>
+      <input type="search" id="filter" placeholder="Filter sites..." aria-label="Filter sites" autocomplete="off">
+      <p class="msg" id="list-msg" role="status"></p>
+      <div id="directory"></div>
+      <p class="empty" id="watches-empty" hidden>Nothing matches.</p>
+    </section>
+
+    <section>
+      <details>
+        <summary>Add a site</summary>
+        <form id="add-form" class="stack">
+          <div class="row grow">
+            <input type="url" id="add-url" placeholder="https://example.gov/press-releases" required aria-label="Page URL">
+            <button class="primary" type="submit" id="add-btn">Watch</button>
+          </div>
+          <div class="grid">
+            <input type="text" id="add-label" placeholder="Label (optional)" aria-label="Label" maxlength="100">
+            <select id="add-category" aria-label="Category"></select>
+          </div>
+          <details>
+            <summary>Advanced</summary>
+            <div class="stack">
+              <label class="field"><span>CSS selector (watch only part of the page)</span>
+                <input type="text" id="add-selector" placeholder="e.g. #releases-list or main .news-items" autocomplete="off" spellcheck="false"></label>
+              <label class="check"><input type="checkbox" id="add-docs"> Only alert on new documents (PDF, Word, Excel, ...)</label>
+            </div>
+          </details>
+          <p class="msg" id="add-msg" role="status"></p>
+        </form>
+      </details>
+    </section>
+
+    <section>
+      <details>
+        <summary>Settings</summary>
+        <form id="settings-form" class="stack">
+          <label class="field"><span>Check every (minutes, 15 to 1440) while Chrome is open</span>
+            <input type="number" id="interval" min="15" max="1440" step="1"></label>
+          <label class="check"><input type="checkbox" id="notifications"> Show a Chrome notification when something new is found</label>
+          <div class="row">
+            <button class="primary" type="submit" id="save-btn">Save</button>
+            <button type="button" class="link" id="reset-defaults">Reset to built-in list</button>
+            <span class="msg" id="settings-msg" role="status"></span>
+          </div>
+        </form>
+      </details>
+    </section>
+  </div>
+</main>
+<script type="module" src="ui.js"></script>
+</body>
+</html>

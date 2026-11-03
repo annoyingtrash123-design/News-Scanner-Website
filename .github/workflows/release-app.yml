@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'app/**'
+      - 'extension/**'
       - '.github/workflows/release-app.yml'
   workflow_dispatch:
 
@@ -70,6 +71,11 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      - name: Test and zip Chrome extension
+        run: |
+          node --test extension/tests/*.test.js
+          cd extension
+          zip -r ../artifacts/news-scanner-chrome-extension.zip . -x 'tests/*' 'tools/*' 'package.json' '*.test.js'
       - name: Move app-latest tag to this commit
         run: |
           git config user.name "github-actions[bot]"
@@ -84,5 +90,6 @@ jobs:
           body: |
             Download the file for your computer, unpack it, and double-click **news-scanner**.
             See README.md inside the download for help.
+            Chrome extension: download **news-scanner-chrome-extension.zip**, unzip it, then in Chrome open chrome://extensions, turn on Developer mode, click Load unpacked and pick the unzipped folder.
             Built from commit ${{ github.sha }}.
           files: artifacts/*

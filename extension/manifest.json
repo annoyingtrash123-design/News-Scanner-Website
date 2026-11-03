@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "News Scanner",
+  "version": "1.0.0",
+  "description": "Checks a list of news and announcement pages in the background and shows what changed. No login, no server, no email.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "unlimitedStorage", "alarms", "offscreen", "notifications"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": {
+    "default_title": "News Scanner",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}
