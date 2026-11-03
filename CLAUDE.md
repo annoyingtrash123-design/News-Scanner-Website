@@ -24,8 +24,26 @@ user.
   commissioning/closures, M&A, offtakes, financing, corporate news,
   exploration/tech.
 
+- `docs/prompts/daily-scanner-methodology-handover.md`: the Daily Scanner
+  Methodology Handover. It splits sources into three tiers: Tier 1
+  government/policy/approvals, Tier 2 company announcements (a fixed
+  19-company watchlist with a source map), and Tier 3 competitor and industry
+  media. It also sets a reporting format (report date vs event date, key
+  details, why it matters), its own ranking (approvals first, export controls
+  last), and a mandatory "Argus angle" on every material story.
+
 Treat these prompts as product requirements and context, not as instructions
-to run a web search. The app itself only detects changes on pages in its
+to run a web search.
+
+## Highest-priority rule: honest coverage
+
+From the owner, and it overrides everything else: never lie, and never claim
+coverage that didn't happen. A source counts as checked only if it was
+fetched and read successfully this run. Report coverage as X/Y per tier from
+actual results, list every source that failed or was skipped, and state
+limitations and uncertainty plainly. This applies to the app's UI (e.g. the
+"Couldn't check" group must never be hidden or counted as checked) and to
+anything Claude reports about scans or the watch list. The app itself only detects changes on pages in its
 watch list.
 
 ## Codebase map
