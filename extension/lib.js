@@ -1,6 +1,8 @@
 // Pure logic shared by the service worker, the offscreen document and the node tests.
 // Ported from app/src/core.rs and app/src/checker.rs. Uses only web-standard APIs.
 
+import { scoreEvent } from './keywords.js';
+
 export const DOC_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'odt', 'ods', 'rtf', 'zip'];
 export const MIN_MEANINGFUL_CHARS = 20;
 export const MAX_STORED_LINES = 1000;
@@ -252,6 +254,7 @@ export function processScan(watch, prev, content, now) {
     watchId: watch.id, url: watch.url, label: watch.label, at: now, summary: summarizeDiff(diff),
     newDocuments: diff.newDocuments, newLinks: diff.newLinks, addedText: diff.addedText,
   };
+  Object.assign(event, scoreEvent(event));
   return { meta, snap, event, diff };
 }
 

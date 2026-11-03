@@ -16,7 +16,7 @@ const rows = [...rs.matchAll(/^\s*\("([^"]+)", "([^"]*)", "([^"]*)", (\w+)\),$/g
 const catList = /CATEGORIES: \[&str; \d+\] = \[([^\]]*)\]/.exec(rs)[1].split(',').map((s) => cats[s.trim()]);
 
 test('defaults.js matches app/src/defaults.rs exactly', () => {
-  assert.equal(rows.length, 126);
+  assert.equal(rows.length, 181);
   assert.deepEqual(CATEGORIES, catList);
   assert.deepEqual(DEFAULTS, rows);
 });
@@ -30,7 +30,7 @@ test('defaults are valid and unique', () => {
     assert.ok(!urls.has(u), `dup url ${d.url}`); urls.add(u);
   }
   const n = (c) => DEFAULTS.filter((d) => d.category === c).length;
-  assert.deepEqual(CATEGORIES.slice(0, 5).map(n), [6, 7, 6, 2, 18]);
+  assert.deepEqual(CATEGORIES.slice(0, 5).map(n), [6, 7, 6, 2, 19]);
 });
 
 test('seeds once; removed defaults stay removed; reset brings them back', () => {

@@ -131,7 +131,15 @@ pub fn process(watch: &Watch, prev: &WatchState, html: &str, final_url: &str, no
         new_documents: diff.new_documents.clone(),
         new_links: diff.new_links.clone(),
         added_text: diff.added_text.clone(),
+        matched_topics: Vec::new(),
+        matched_companies: Vec::new(),
+        matched_focus: Vec::new(),
+        relevance: String::new(),
+        item_matches: Vec::new(),
+        kw_version: 0,
     };
+    let mut event = event;
+    crate::keywords::apply(&mut event);
     Ok(Outcome { entry, event: Some(event), diff: Some(diff) })
 }
 
@@ -222,13 +230,15 @@ pub async fn run_checks(app: &App, only: Option<Vec<String>>) {
         d.watches.iter().filter(|w| only.as_ref().map_or(true, |ids| ids.contains(&w.id))).cloned().collect()
     });
     if full {
-        *app.status.lock().unwrap_or_else(|e| e.into_inner()) = crate::store::RunStatus {
+        let st = crate::store::RunStatus {
             running: true,
             done: 0,
             total: watches.len(),
             started_at: Some(now_string()),
             finished_at: None,
         };
+        *app.status.lock().unwrap_or_else(|e| e.into_inner()) = st.clone();
+        app.with_data(|d| d.last_run = Some(st));
     }
     let items: Vec<(String, Watch)> = watches.into_iter().map(|w| (host_key(&w.url), w)).collect();
     let app2 = app.clone();
@@ -243,9 +253,13 @@ pub async fn run_checks(app: &App, only: Option<Vec<String>>) {
     })
     .await;
     if full {
-        let mut st = app.status.lock().unwrap_or_else(|e| e.into_inner());
-        st.running = false;
-        st.finished_at = Some(now_string());
+        let st = {
+            let mut st = app.status.lock().unwrap_or_else(|e| e.into_inner());
+            st.running = false;
+            st.finished_at = Some(now_string());
+            st.clone()
+        };
+        app.with_data(|d| d.last_run = Some(st));
     }
 }
 
@@ -351,6 +365,20 @@ mod tests {
         for (_, (_, max)) in per.iter() {
             assert_eq!(max.load(SeqCst), 1, "never two at once on one host");
         }
+    }
+
+    #[test]
+    fn new_events_are_scored() {
+        let w = watch(false);
+        let base = process(&w, &WatchState::default(), P1, &w.url, "t1").unwrap();
+        let p = "<body><p>Hello world.</p><a href='/a.pdf'>A</a><a href='/news/1'>China tightens rare earth export controls</a><a href='/news/2'>Local council approves bike lane</a></body>";
+        let ev = process(&w, &base.entry, p, &w.url, "t2").unwrap().event.unwrap();
+        assert_eq!(ev.relevance, "high");
+        assert_eq!(ev.kw_version, crate::keywords::KW_VERSION);
+        assert!(ev.matched_topics.contains(&"Rare earths".to_string()));
+        let m = ev.item_matches.iter().find(|m| m.kind == "link").unwrap();
+        assert_eq!(ev.new_links[m.index].text, "China tightens rare earth export controls");
+        assert!(ev.item_matches.iter().all(|m| m.kind != "link" || m.index == 0 || ev.new_links[m.index].text.contains("rare earth")));
     }
 
     #[test]

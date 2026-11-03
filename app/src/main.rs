@@ -1,6 +1,7 @@
 mod checker;
 mod core;
 mod defaults;
+mod keywords;
 mod mailer;
 mod server;
 mod store;
@@ -46,6 +47,17 @@ async fn run() -> anyhow::Result<()> {
     let mut data = store::Data::load(&path);
     let now = checker::now_string();
     defaults::seed(&mut data, &now);
+    let rescored = keywords::rescore_stale(&mut data.events);
+    if rescored > 0 {
+        println!("Scored {rescored} stored updates for keyword relevance.");
+    }
+    // A run that was still marked running when the app last exited did not finish.
+    if let Some(r) = data.last_run.as_mut() {
+        if r.running {
+            r.running = false;
+            r.finished_at = Some(now.clone());
+        }
+    }
     if data.last_seen_at.is_none() {
         data.last_seen_at = Some(now); // first launch: nothing counts as new yet
     }
@@ -54,11 +66,12 @@ async fn run() -> anyhow::Result<()> {
     }
     let app_password = std::env::var("APP_PASSWORD").ok().filter(|p| !p.is_empty()).map(Arc::new);
     let loopback_only = matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1");
+    let status = data.last_run.clone().unwrap_or_default();
     let app = store::App {
         data: Arc::new(Mutex::new(data)),
         path: Arc::new(path.clone()),
         run_lock: Arc::new(tokio::sync::Mutex::new(())),
-        status: Arc::new(Mutex::new(store::RunStatus::default())),
+        status: Arc::new(Mutex::new(status)),
         client: checker::build_client(),
         app_password,
         loopback_only,

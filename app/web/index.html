@@ -24,10 +24,15 @@
   </header>
 
   <div id="view-updates">
+    <p class="coverage" id="coverage" role="status"></p>
     <section>
       <div class="row between">
         <h2>New since your last visit</h2>
         <button class="link" id="mark-seen" type="button" hidden>Mark all as read</button>
+      </div>
+      <div class="row filter-row">
+        <label class="check"><input type="checkbox" id="relevant-only"> Relevant only</label>
+        <span class="hint" id="hidden-note" role="status"></span>
       </div>
       <div id="new-items"></div>
       <p class="empty" id="new-empty" hidden></p>
@@ -132,6 +137,6 @@
     </section>
   </div>
 </main>
-<script src="/app.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>

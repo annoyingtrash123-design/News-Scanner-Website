@@ -1,5 +1,9 @@
 // Full-page UI. Reads chrome.storage.local directly (live via onChanged); all writes go through the service worker.
 import { CATEGORIES } from './defaults.js';
+import { needsScore, withScore } from './keywords.js';
+import {
+  bucketGroups, categoryCoverage, chipsFor, coverage, coverageText, formatSydney, groupEvents, highlightSegments, hostOf, isChecked,
+} from './ui-logic.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -28,13 +32,12 @@ function ago(iso) {
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
 }
-function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } }
 function safeHref(u) { try { const p = new URL(u); return p.protocol === 'http:' || p.protocol === 'https:' ? u : null; } catch { return null; } }
 function setMsg(node, text, isErr) { node.textContent = text || ''; node.classList.toggle('err', !!isErr); }
 function ext(a) { a.target = '_blank'; a.rel = 'noopener noreferrer'; return a; }
 function link(href, text, cls) { return ext(el('a', { href: safeHref(href), class: cls, text })); }
 
-const state = { watches: [], events: [], lastSeenAt: null, run: null };
+const state = { watches: [], events: [], lastSeenAt: null, run: null, fullRun: null };
 const DEFAULT_SETTINGS = { intervalMinutes: 30, notifications: true };
 
 // ---------- tabs ----------
@@ -52,61 +55,131 @@ try { initialTab = localStorage.getItem('ns-tab') || 'updates'; } catch { /* sto
 showTab(initialTab);
 
 // ---------- updates ----------
+const BUCKETS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['older', 'Older']];
+let relevantOnly = true;
+try { relevantOnly = localStorage.getItem('ns-relevant-only') !== '0'; } catch { /* storage unavailable */ }
+$('relevant-only').checked = relevantOnly;
+function setRelevantOnly(on) {
+  relevantOnly = on;
+  try { localStorage.setItem('ns-relevant-only', on ? '1' : '0'); } catch { /* storage unavailable */ }
+  $('relevant-only').checked = on;
+  renderUpdates();
+}
+$('relevant-only').addEventListener('change', (e) => setRelevantOnly(e.target.checked));
+
 function isNew(ev) { return !state.lastSeenAt || ev.at > state.lastSeenAt; }
+
+/** Text with matched keywords wrapped in <mark>, built from DOM nodes only (never innerHTML). */
+function marked(text, spans, limit) {
+  return highlightSegments(text, spans, limit).map((s) => (s.mark ? el('mark', { text: s.text }) : s.text));
+}
+function mlink(href, text, spans, cls) {
+  const a = ext(el('a', { href: safeHref(href), class: cls }));
+  a.append(...marked(text, spans));
+  return a;
+}
+function pill(rel) {
+  return rel === 'high' || rel === 'medium' || rel === 'low'
+    ? el('span', { class: `pill ${rel}`, text: rel[0].toUpperCase() + rel.slice(1), title: `${rel[0].toUpperCase() + rel.slice(1)} relevance to the keyword brief` }) : null;
+}
+const CHIP_TITLES = { focus: 'Special focus term', company: 'Watchlist company', topic: 'Topic' };
 
 function renderGroup(g) {
   const links = g.links.slice(0, 8);
-  return el('div', { class: 'site' },
-    el('div', { class: 'site-head' }, link(g.url, g.label), el('span', { class: 'when', text: ago(g.at) })),
+  const { chips, extra } = chipsFor(g);
+  return el('div', { class: `site rel-${g.relevance}` },
+    el('div', { class: 'site-head' }, link(g.url, g.label), pill(g.relevance),
+      el('span', { class: 'when', text: formatSydney(g.at, { date: g.bucket === 'older' }), title: formatSydney(g.at) })),
+    chips.length ? el('div', { class: 'chips' },
+      ...chips.map((c) => el('span', { class: `chip ${c.kind}`, text: c.name, title: CHIP_TITLES[c.kind] })),
+      extra ? el('span', { class: 'chip more', text: `+${extra}` }) : null) : null,
     g.docs.length || links.length || g.texts.length ? el('ul', null,
       ...g.docs.slice(0, 15).map((d) => el('li', null,
-        el('span', { class: 'badge', text: (d.ext || 'file').toUpperCase() }), link(d.href, d.text || d.href, 'lnk'))),
+        el('span', { class: 'badge', text: (d.ext || 'file').toUpperCase() }), mlink(d.href, d.text || d.href, d.text ? d.spans : null, 'lnk'))),
       g.docs.length > 15 ? el('li', { class: 'more', text: `+${g.docs.length - 15} more documents` }) : null,
-      ...links.map((l) => el('li', null, link(l.href, l.text || l.href, 'lnk'))),
+      ...links.map((l) => el('li', null, mlink(l.href, l.text || l.href, l.text ? l.spans : null, 'lnk'))),
       g.links.length > 8 ? el('li', { class: 'more', text: `+${g.links.length - 8} more links` }) : null,
-      ...g.texts.slice(0, 2).map((t) => el('li', { class: 'excerpt', text: `“${t.length > 200 ? t.slice(0, 197) + '...' : t}”` }))) : null);
+      ...g.texts.slice(0, 2).map((t) => el('li', { class: 'excerpt' }, '“', ...marked(t.text, t.spans, t.text.length > 200 ? 197 : undefined), t.text.length > 200 ? '...' : '', '”'))) : null);
 }
 
-function groupEvents(evs) {
-  const map = new Map();
-  for (const ev of evs) { // newest first
-    let g = map.get(ev.watchId);
-    if (!g) { g = { url: ev.url, label: ev.label || hostOf(ev.url), at: ev.at, docs: [], links: [], texts: [], hrefs: new Set() }; map.set(ev.watchId, g); }
-    for (const d of ev.newDocuments || []) if (!g.hrefs.has(d.href)) { g.hrefs.add(d.href); g.docs.push(d); }
-    for (const l of ev.newLinks || []) if (!g.hrefs.has(l.href)) { g.hrefs.add(l.href); g.links.push(l); }
-    for (const t of ev.addedText || []) if (!g.texts.includes(t)) g.texts.push(t);
+function renderCoverage() {
+  if (!state.loaded) return; // nothing to count until the first load
+  const run = state.fullRun;
+  const cov = coverage(state.watches, run, runActive());
+  const box = $('coverage');
+  box.classList.toggle('warn', cov.state === 'done' && cov.notChecked > 0);
+  box.replaceChildren(coverageText(cov, run));
+  if (cov.state === 'done' && cov.notChecked > 0) {
+    const v = el('button', { class: 'link', type: 'button', text: 'view' });
+    v.addEventListener('click', () => {
+      const d = $('errors-box');
+      d.hidden = false; d.open = true;
+      d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    box.append(' (', v, ')');
   }
-  return [...map.values()];
 }
 
 function renderUpdates() {
   const fresh = state.events.filter(isNew);
   const old = state.events.filter((e) => !isNew(e));
-  $('new-items').replaceChildren(...groupEvents(fresh).map(renderGroup));
+  const groups = groupEvents(fresh);
+  const low = groups.filter((g) => g.relevance === 'low').length;
+  const shown = relevantOnly ? groups.filter((g) => g.relevance !== 'low') : groups;
+  const buckets = bucketGroups(shown);
+  const parts = [];
+  for (const [key, title] of BUCKETS) {
+    if (!buckets[key].length) continue;
+    const day = key === 'older' ? '' : formatSydney(buckets[key][0].at, {}).replace(/,.*$/, '');
+    parts.push(el('h3', { class: 'bucket' }, title, day ? el('span', { class: 'count', text: day }) : null,
+      el('span', { class: 'count', text: plural(buckets[key].length, 'site') })));
+    parts.push(...buckets[key].map(renderGroup));
+  }
+  $('new-items').replaceChildren(...parts);
   $('mark-seen').hidden = fresh.length === 0;
+  const hidden = $('hidden-note');
+  hidden.replaceChildren();
+  if (relevantOnly && low > 0) {
+    const b = el('button', { class: 'link', type: 'button', text: 'show' });
+    b.addEventListener('click', () => setRelevantOnly(false));
+    hidden.append(`${low} low-relevance ${low === 1 ? 'item' : 'items'} hidden — `, b);
+  }
   const empty = $('new-empty');
-  empty.hidden = fresh.length > 0;
+  empty.hidden = shown.length > 0;
   empty.className = 'calm';
-  const when = state.lastSeenAt ? new Date(state.lastSeenAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'you started';
-  empty.textContent = `Nothing new since ${when}`;
+  const when = state.lastSeenAt ? formatSydney(state.lastSeenAt) : 'you started';
+  empty.textContent = fresh.length > 0 && shown.length === 0 ? `No relevant updates since ${when}` : `Nothing new since ${when}`;
 
   let n = 0;
-  for (const e of fresh) n += Math.max(1, (e.newDocuments || []).length + (e.newLinks || []).length);
+  for (const g of shown) n += Math.max(1, g.docs.length + g.links.length);
   document.title = n > 0 ? `(${n}) News Scanner` : 'News Scanner';
 
   $('earlier-count').textContent = old.length ? `(${old.length})` : '';
   $('earlier-empty').hidden = old.length > 0;
   $('earlier').replaceChildren(...old.slice(0, 60).map((ev) => el('li', { class: 'event' },
-    el('div', null, link(ev.url, ev.label || hostOf(ev.url)), ' ', el('span', { class: 'when', text: ago(ev.at) })),
+    el('div', null, link(ev.url, ev.label || hostOf(ev.url)), ' ', pill(ev.relevance), ' ', el('span', { class: 'when', text: formatSydney(ev.at) })),
     el('div', { class: 'what', text: ev.summary }),
     (ev.newDocuments || []).length ? el('ul', { class: 'docs' }, ...ev.newDocuments.map((d) =>
       el('li', null, el('span', { class: 'badge', text: (d.ext || 'file').toUpperCase() }), link(d.href, d.text || d.href)))) : null)));
 
+  renderCoverage();
+  renderCouldntCheck();
+}
+
+/** Sites with an error, plus (once a full scan has finished) sites that scan never reached. Never hidden, never counted as checked. */
+function renderCouldntCheck() {
+  const run = state.fullRun;
+  const cov = coverage(state.watches, run, runActive());
   const bad = state.watches.filter((w) => w.lastStatus === 'error');
-  $('errors-box').hidden = bad.length === 0;
-  $('errors-summary').textContent = `Couldn't check (${bad.length})`;
+  const missed = cov.state === 'done' ? state.watches.filter((w) => w.lastStatus !== 'error' && !isChecked(w, run)) : [];
+  const all = bad.length + missed.length;
+  $('errors-box').hidden = all === 0;
+  $('errors-summary').textContent = `Couldn't check (${all})`;
   $('errors').replaceChildren(...bad.map((w) => el('li', null,
-    link(w.url, w.label || hostOf(w.url)), el('div', { class: 'err-text', text: w.lastError || 'Check failed' }))));
+    link(w.url, w.label || hostOf(w.url)), el('div', { class: 'err-text', text: w.lastError || 'Check failed' }))),
+  ...missed.map((w) => el('li', null,
+    link(w.url, w.label || hostOf(w.url)),
+    el('div', { class: 'err-text', text: w.lastStatus === 'ok' ? `Not reached in the latest scan (last successful check ${formatSydney(w.lastChecked)})` : 'Not checked yet' }))));
 }
 
 $('mark-seen').addEventListener('click', async () => {
@@ -140,7 +213,9 @@ function renderSites() {
   for (const cat of CATEGORIES) {
     const items = shown.filter((w) => catOf(w) === cat).sort(byName);
     if (!items.length) continue;
+    const cc = categoryCoverage(all.filter((w) => catOf(w) === cat), state.fullRun);
     dir.append(el('h3', { class: 'cat' }, cat, el('span', { class: 'count', text: `${items.length}` })));
+    dir.append(el('p', { class: `cat-sub${cc.checked < cc.total ? ' partial' : ''}`, text: `${cc.checked}/${cc.total} checked` }));
     dir.append(el('ul', { class: 'rows' }, ...items.map((w) => {
       const st = statusOf(w);
       const rm = el('button', { class: 'link danger', type: 'button', text: 'Remove' });
@@ -154,7 +229,7 @@ function renderSites() {
           w.documentsOnly ? el('span', { class: 'tag', text: 'docs only' }) : null,
           w.selector ? el('span', { class: 'tag', text: 'part of page' }) : null),
         el('span', { class: `st${st.bad ? ' bad' : ''}`, text: st.text, title: st.title || '' }),
-        el('span', { class: 'when', text: w.lastChecked ? `checked ${ago(w.lastChecked)}` : '' }),
+        el('span', { class: 'when', text: w.lastChecked ? `checked ${ago(w.lastChecked)}` : '', title: w.lastChecked ? formatSydney(w.lastChecked) : '' }),
         link(w.url, 'Open ↗', 'link-a'), rm);
     })));
   }
@@ -212,13 +287,20 @@ $('add-form').addEventListener('submit', async (ev) => {
 });
 
 // ---------- data + progress ----------
+/** A scan of the whole list is running (its heartbeat is recent). */
 function runActive() {
+  const r = state.fullRun;
+  return !!(r && r.running && r.heartbeat && Date.now() - new Date(r.heartbeat).getTime() < 120000);
+}
+
+/** Any run (whole list or a few sites) is running: drives the progress bar. */
+function progressActive() {
   const r = state.run;
   return !!(r && r.running && r.heartbeat && Date.now() - new Date(r.heartbeat).getTime() < 120000);
 }
 
 function renderProgress() {
-  const on = runActive();
+  const on = progressActive();
   $('progress').hidden = !on;
   $('check-all').disabled = on;
   if (on) {
@@ -229,17 +311,19 @@ function renderProgress() {
 }
 
 async function load() {
-  const d = await chrome.storage.local.get({ watches: [], states: {}, events: [], lastSeenAt: null, run: null });
+  const d = await chrome.storage.local.get({ watches: [], states: {}, events: [], lastSeenAt: null, run: null, fullRun: null });
   state.watches = d.watches.map((w) => ({ ...w, ...(d.states[w.id] || {}) }));
-  state.events = d.events;
+  state.events = d.events.map((e) => (needsScore(e) ? withScore(e) : e)); // old events are scored on the fly
   state.lastSeenAt = d.lastSeenAt;
+  state.loaded = true;
   state.run = d.run;
+  state.fullRun = d.fullRun;
   renderUpdates(); renderSites(); renderProgress();
 }
 
 let timer = null;
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || !['watches', 'states', 'events', 'lastSeenAt', 'run'].some((k) => k in changes)) return;
+  if (area !== 'local' || !['watches', 'states', 'events', 'lastSeenAt', 'run', 'fullRun'].some((k) => k in changes)) return;
   clearTimeout(timer);
   timer = setTimeout(load, 120);
 });

@@ -76,6 +76,21 @@ pub struct Event {
     pub new_links: Vec<Link>,
     #[serde(default)]
     pub added_text: Vec<String>,
+    /// Keyword relevance (see keywords.rs). Empty `relevance` means not scored yet.
+    #[serde(default)]
+    pub matched_topics: Vec<String>,
+    #[serde(default)]
+    pub matched_companies: Vec<String>,
+    #[serde(default)]
+    pub matched_focus: Vec<String>,
+    /// "high" | "medium" | "low", or "" if unscored.
+    #[serde(default)]
+    pub relevance: String,
+    /// Which headlines matched, with highlight ranges.
+    #[serde(default)]
+    pub item_matches: Vec<crate::keywords::ItemMatch>,
+    #[serde(default)]
+    pub kw_version: u32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -89,11 +104,13 @@ pub struct Data {
     pub seeded_defaults: Vec<String>,
     /// Events with `at` later than this are "new since your last visit".
     pub last_seen_at: Option<String>,
+    /// The latest full run (kept across restarts so coverage can be reported honestly).
+    pub last_run: Option<RunStatus>,
 }
 
 /// Progress of the current (or last) full run, served at GET /api/status.
-#[derive(Clone, Debug, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct RunStatus {
     pub running: bool,
     pub done: usize,

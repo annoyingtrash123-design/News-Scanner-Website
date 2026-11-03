@@ -13,8 +13,10 @@ pub const MINING_MEDIA: &str = "Mining & Metals Media";
 pub const AU_PRESS: &str = "Australian Press";
 pub const TRADE_DATA: &str = "Trade Data & Foreign Governments";
 pub const MAGNETS: &str = "Magnets & Rare Earths";
+pub const BUSINESS_PRESS: &str = "Global & Asian Business Press";
+pub const EXCHANGES: &str = "Exchange Announcements";
 pub const OTHER: &str = "Other";
-pub const CATEGORIES: [&str; 12] = [FEDERAL, RESOURCES, PREMIERS, PLANNING, COMPANIES, EV_NEWS, ASIA_PRESS, MINING_MEDIA, AU_PRESS, TRADE_DATA, MAGNETS, OTHER];
+pub const CATEGORIES: [&str; 14] = [FEDERAL, RESOURCES, PREMIERS, PLANNING, COMPANIES, EV_NEWS, ASIA_PRESS, MINING_MEDIA, AU_PRESS, TRADE_DATA, MAGNETS, BUSINESS_PRESS, EXCHANGES, OTHER];
 
 /// (stable_id, label, url, category). Never change an id once shipped; add new entries at the end.
 pub const DEFAULTS: &[(&str, &str, &str, &str)] = &[
@@ -144,6 +146,61 @@ pub const DEFAULTS: &[(&str, &str, &str, &str)] = &[
     ("gkn-powder-metallurgy", "GKN Powder Metallurgy", "https://www.gknpm.com/", MAGNETS),
     ("jogmec-news", "JOGMEC \u{2013} News Releases", "https://www.jogmec.go.jp/english/news/release/index.html", MAGNETS),
     ("magneti-ljubljana", "Magneti Ljubljana", "https://www.magneti.si/en/", MAGNETS),
+    ("adamas-intelligence", "Adamas Intelligence", "https://www.adamasintel.com/", MINING_MEDIA),
+    ("project-blue", "Project Blue \u{2013} BlueViews", "https://www.projectblue.com/blue", MINING_MEDIA),
+    ("wood-mackenzie", "Wood Mackenzie", "https://www.woodmac.com/", MINING_MEDIA),
+    ("asian-metal", "Asian Metal", "https://www.asianmetal.com/", MINING_MEDIA),
+    ("mysteel", "Mysteel", "https://www.mysteel.net/", MINING_MEDIA),
+    ("gasgoo", "Gasgoo \u{2013} Auto News", "https://autonews.gasgoo.com/", EV_NEWS),
+    ("cnevpost", "CnEVPost", "https://cnevpost.com/", EV_NEWS),
+    ("etnews", "ET News (전자신문)", "https://www.etnews.com/", ASIA_PRESS),
+    ("chosun-biz", "Chosun Biz", "https://biz.chosun.com/", ASIA_PRESS),
+    ("reuters-commodities", "Reuters \u{2013} Commodities", "https://www.reuters.com/markets/commodities/", BUSINESS_PRESS),
+    ("bloomberg-commodities", "Bloomberg \u{2013} Commodities", "https://www.bloomberg.com/markets/commodities", BUSINESS_PRESS),
+    ("argus-latest", "Argus \u{2013} Latest market news", "https://www.argusmedia.com/en/news-and-insights/latest-market-news", BUSINESS_PRESS),
+    ("spglobal-ci", "S&P Global Commodity Insights \u{2013} Latest news", "https://www.spglobal.com/commodity-insights/en/news-research/latest-news", BUSINESS_PRESS),
+    ("ft-commodities", "Financial Times \u{2013} Commodities", "https://www.ft.com/commodities", BUSINESS_PRESS),
+    ("wsj-commodities", "Wall Street Journal \u{2013} Commodities", "https://www.wsj.com/finance/commodities-futures", BUSINESS_PRESS),
+    ("scmp-business", "South China Morning Post \u{2013} Business", "https://www.scmp.com/business", BUSINESS_PRESS),
+    ("business-times-sg", "The Business Times (Singapore)", "https://www.businesstimes.com.sg/", BUSINESS_PRESS),
+    ("economic-times-metals", "The Economic Times \u{2013} Metals & Mining", "https://economictimes.indiatimes.com/industry/indl-goods/svs/metals-mining", BUSINESS_PRESS),
+    ("business-standard", "Business Standard \u{2013} Industry", "https://www.business-standard.com/industry", BUSINESS_PRESS),
+    ("jakarta-post-business", "The Jakarta Post \u{2013} Business", "https://www.thejakartapost.com/business", BUSINESS_PRESS),
+    ("antara-business", "Antara \u{2013} Business & Investment", "https://en.antaranews.com/business-investment", BUSINESS_PRESS),
+    ("vir", "Vietnam Investment Review", "https://vir.com.vn/", BUSINESS_PRESS),
+    ("mofcom-en", "China MOFCOM (English)", "https://english.mofcom.gov.cn/", TRADE_DATA),
+    ("mofcom-cn-news", "China MOFCOM \u{2013} 新闻发布", "https://www.mofcom.gov.cn/xwfb/index.html", TRADE_DATA),
+    ("miit", "China MIIT \u{2013} 新闻发布", "https://www.miit.gov.cn/xwfb/index.html", TRADE_DATA),
+    ("ndrc", "China NDRC \u{2013} News", "https://en.ndrc.gov.cn/news/", TRADE_DATA),
+    ("state-council", "China State Council \u{2013} News", "https://english.www.gov.cn/news/", TRADE_DATA),
+    ("mnr", "China Ministry of Natural Resources \u{2013} 动态", "https://www.mnr.gov.cn/dt/", TRADE_DATA),
+    ("nea", "China National Energy Administration", "https://www.nea.gov.cn/", TRADE_DATA),
+    ("sasac", "China SASAC", "http://en.sasac.gov.cn/", TRADE_DATA),
+    ("motir", "Korea Ministry of Trade, Industry and Resources", "https://english.motir.go.kr/", TRADE_DATA),
+    ("kita", "KITA (Korea International Trade Association)", "https://www.kita.org/", TRADE_DATA),
+    ("kotra", "KOTRA", "https://www.kotra.or.kr/index.do", TRADE_DATA),
+    ("korea-customs", "Korea Customs Service", "https://www.customs.go.kr/english/main.do", TRADE_DATA),
+    ("esdm", "Indonesia ESDM \u{2013} News", "https://www.esdm.go.id/en/media-center/news-archives", TRADE_DATA),
+    ("ekon", "Indonesia Coordinating Ministry for Economic Affairs", "https://www.ekon.go.id/", TRADE_DATA),
+    ("moit-vn", "Vietnam Ministry of Industry and Trade", "https://moit.gov.vn/", TRADE_DATA),
+    ("denr", "Philippines DENR \u{2013} Press releases", "https://denr.gov.ph/news-events/press-releases/", TRADE_DATA),
+    ("mgb", "Philippines Mines and Geosciences Bureau", "https://mgb.gov.ph/", TRADE_DATA),
+    ("kz-industry", "Kazakhstan Ministry of Industry and Construction", "https://www.gov.kz/org/mps", TRADE_DATA),
+    ("uz-mining", "Uzbekistan Ministry of Mining Industry and Geology", "https://gov.uz/en/mingeo", TRADE_DATA),
+    ("dart", "DART \u{2013} Latest disclosures (Korea)", "https://dart.fss.or.kr/dsac001/mainAll.do", EXCHANGES),
+    ("sse", "Shanghai Stock Exchange \u{2013} 最新公告", "https://www.sse.com.cn/disclosure/listedinfo/announcement/", EXCHANGES),
+    ("szse", "Shenzhen Stock Exchange \u{2013} Announcements", "https://www.szse.cn/disclosure/listed/notice/index.html", EXCHANGES),
+    ("jpx", "JPX \u{2013} Market news", "https://www.jpx.co.jp/english/news/index.html", EXCHANGES),
+    ("twse", "TWSE (Taiwan Stock Exchange)", "https://www.twse.com.tw/en/", EXCHANGES),
+    ("nse-india", "NSE India \u{2013} Corporate announcements", "https://www.nseindia.com/companies-listing/corporate-filings-announcements", EXCHANGES),
+    ("idx", "IDX (Indonesia Stock Exchange) \u{2013} News", "https://www.idx.co.id/en/news/news", EXCHANGES),
+    ("bursa", "Bursa Malaysia \u{2013} Company announcements", "https://www.bursamalaysia.com/market_information/announcements/company_announcement", EXCHANGES),
+    ("set-th", "SET (Stock Exchange of Thailand) \u{2013} News", "https://www.set.or.th/en/market/news-and-alert/news", EXCHANGES),
+    ("hnx", "HNX (Hanoi Stock Exchange)", "https://www.hnx.vn/", EXCHANGES),
+    ("pse", "PSE EDGE (Philippine Stock Exchange)", "https://edge.pse.com.ph/", EXCHANGES),
+    ("hpq-downloads", "HPQ Silicon \u{2013} Releases & Financials", "https://hpqsilicon.com/downloads/", COMPANIES),
+    ("lynas", "Lynas Rare Earths", "https://lynasrareearths.com/", MAGNETS),
+    ("mp-materials", "MP Materials \u{2013} Investors", "https://investors.mpmaterials.com/", MAGNETS),
 ];
 
 /// Add every default whose id has not been seeded before. Returns the ids of watches added.
@@ -209,7 +266,7 @@ mod tests {
     #[test]
     fn category_counts_and_backfill() {
         let n = |c: &str| DEFAULTS.iter().filter(|d| d.3 == c).count();
-        assert_eq!((n(FEDERAL), n(RESOURCES), n(PREMIERS), n(PLANNING), n(COMPANIES)), (6, 7, 6, 2, 18));
+        assert_eq!((n(FEDERAL), n(RESOURCES), n(PREMIERS), n(PLANNING), n(COMPANIES)), (6, 7, 6, 2, 19));
         let mut d = Data::default();
         seed(&mut d, "t");
         d.watches[0].category.clear();

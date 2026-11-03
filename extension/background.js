@@ -1,6 +1,7 @@
 // Service worker: scheduling, checking, storage. It is the only writer of extension data.
 import { DEFAULTS, CATEGORIES } from './defaults.js';
 import * as lib from './lib.js';
+import { needsScore, withScore } from './keywords.js';
 
 const ACCENT = '#2563eb';
 const UI_URL = chrome.runtime.getURL('ui.html');
@@ -214,7 +215,9 @@ async function doRun(onlyIds) {
   const list = onlyIds ? watches.filter((w) => onlyIds.includes(w.id)) : watches;
   if (!list.length) return;
   const run = { running: true, done: 0, total: list.length, startedAt: nowIso(), heartbeat: nowIso(), finishedAt: null };
-  await chrome.storage.local.set({ run });
+  const full = !onlyIds; // only whole-list runs count as "the latest scan" for coverage
+  const saveRun = () => chrome.storage.local.set(full ? { run, fullRun: run } : { run });
+  await saveRun();
   const events = [];
   try {
     await ensureOffscreen();
@@ -225,13 +228,13 @@ async function doRun(onlyIds) {
       } finally {
         run.done++;
         run.heartbeat = nowIso();
-        await chrome.storage.local.set({ run });
+        await saveRun();
       }
     });
   } finally {
     run.running = false;
     run.finishedAt = nowIso();
-    await chrome.storage.local.set({ run });
+    await saveRun();
     await closeOffscreen();
     await updateBadge();
   }
@@ -248,11 +251,23 @@ async function ensureAlarm(force) {
   }
 }
 
+/** Score stored events that have no relevance yet or were scored with an older keyword list. */
+async function rescoreEvents() {
+  await locked(async () => {
+    const { events } = await chrome.storage.local.get({ events: [] });
+    if (!events.some(needsScore)) return;
+    await chrome.storage.local.set({ events: events.map((e) => (needsScore(e) ? withScore(e) : e)) });
+  });
+}
+
 /** Runs each time the worker starts. A fresh worker means any earlier run died, so clear its flag. */
 async function init() {
   try {
-    const { run } = await chrome.storage.local.get({ run: null });
-    if (run && run.running) await chrome.storage.local.set({ run: { ...run, running: false, finishedAt: nowIso() } });
+    const { run, fullRun } = await chrome.storage.local.get({ run: null, fullRun: null });
+    const stopped = { running: false, finishedAt: nowIso() };
+    if (run && run.running) await chrome.storage.local.set({ run: { ...run, ...stopped } });
+    if (fullRun && fullRun.running) await chrome.storage.local.set({ fullRun: { ...fullRun, ...stopped } });
+    await rescoreEvents();
     await ensureAlarm(false);
     await updateBadge();
   } catch (e) { console.error('init failed', e); }
