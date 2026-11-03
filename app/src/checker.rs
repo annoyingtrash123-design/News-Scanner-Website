@@ -1,5 +1,6 @@
 //! Fetch + check logic and the bounded-concurrency run loop.
 use crate::core::*;
+use crate::errors::*;
 use crate::mailer;
 use crate::store::{App, Event, Watch, WatchState};
 use std::collections::HashMap;
@@ -17,65 +18,128 @@ const MAX_STORED_LINES: usize = 1000;
 const MAX_LINKS: usize = 1500;
 
 pub fn build_client() -> reqwest::Client {
-    reqwest::Client::builder()
+    let b = reqwest::Client::builder()
         .user_agent(UA)
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(20))
-        .gzip(true)
-        .build()
-        .expect("http client")
+        .timeout(std::time::Duration::from_secs(TIMEOUT_SECS))
+        .gzip(true);
+    // Windows/macOS: use the OS certificate store and TLS stack (fetches missing intermediate
+    // certificates, supports older servers). Linux keeps rustls.
+    #[cfg(any(windows, target_os = "macos"))]
+    let b = b.use_native_tls();
+    b.build().expect("http client")
 }
 
 /// Validate URL and make sure the host resolves only to public addresses.
-async fn assert_public(url: &str) -> Result<url::Url, String> {
-    let u = validate_url(url)?;
+async fn assert_public(url: &str) -> Result<url::Url, FetchError> {
+    let u = validate_url(url).map_err(|e| FetchError::new(ErrorKind::Other, e))?;
     if let Some(url::Host::Domain(d)) = u.host() {
         let port = u.port_or_known_default().unwrap_or(80);
         let addrs: Vec<_> = tokio::net::lookup_host((d, port))
             .await
-            .map_err(|e| format!("DNS lookup failed for {d}: {e}"))?
+            .map_err(|e| FetchError::new(ErrorKind::Dns, format!("DNS lookup failed for {d}: {e}")))?
             .collect();
         if addrs.is_empty() {
-            return Err(format!("DNS lookup failed for {d}"));
+            return Err(FetchError::new(ErrorKind::Dns, format!("DNS lookup failed for {d}")));
         }
         if addrs.iter().any(|a| is_blocked_ip(a.ip())) {
-            return Err("Host resolves to a disallowed address".into());
+            return Err(FetchError::new(ErrorKind::Other, "Host resolves to a disallowed address"));
         }
     }
     Ok(u)
 }
 
-/// GET with manual redirects (each hop SSRF-checked). Returns (html, final_url).
-pub async fn fetch_page(client: &reqwest::Client, url: &str) -> Result<(String, String), String> {
+/// Full source chain of an error, for classification.
+fn error_chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut cur: &dyn std::error::Error = e;
+    while let Some(s) = cur.source() {
+        out.push_str(": ");
+        out.push_str(&s.to_string());
+        cur = s;
+    }
+    out
+}
+
+fn looks_complete(body: &[u8]) -> bool {
+    let tail = &body[body.len().saturating_sub(2048)..];
+    String::from_utf8_lossy(tail).to_ascii_lowercase().contains("</html")
+}
+
+/// One GET attempt with manual redirects (each hop SSRF-checked). Returns (html, final_url).
+async fn fetch_once(client: &reqwest::Client, url: &str) -> Result<(String, String), FetchError> {
     let mut current = url.to_string();
     for _ in 0..6 {
         let u = assert_public(&current).await?;
-        let res = client
+        let mut res = client
             .get(u.clone())
             .header("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
             .header("Accept-Language", "en-US,en;q=0.9")
             .send()
             .await
             .map_err(|e| {
-                if e.is_timeout() { "Timed out after 20s".to_string() } else { format!("Request failed: {}", root_cause(&e)) }
+                if e.is_timeout() {
+                    FetchError::new(ErrorKind::Timeout, format!("Timed out after {TIMEOUT_SECS}s"))
+                } else {
+                    FetchError::from_message(format!("Request failed: {}", root_cause(&e)), &error_chain(&e))
+                }
             })?;
         let status = res.status();
         if status.is_redirection() {
             if let Some(loc) = res.headers().get("location").and_then(|v| v.to_str().ok()) {
-                current = u.join(loc).map_err(|_| "Bad redirect".to_string())?.to_string();
+                current = u.join(loc).map_err(|_| FetchError::new(ErrorKind::Other, "Bad redirect"))?.to_string();
                 continue;
             }
         }
         if !status.is_success() {
-            return Err(format!("HTTP {}", status.as_u16()));
+            let retry_after = res.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(parse_retry_after);
+            return Err(FetchError::http(status.as_u16(), retry_after));
         }
-        let bytes = res.bytes().await.map_err(|e| format!("Read failed: {}", root_cause(&e)))?;
-        if bytes.len() > MAX_BYTES {
-            return Err("Page too large".into());
+        // Read the body in chunks so that a server closing the TLS connection without
+        // close_notify after sending the whole page still counts as success.
+        let mut bytes: Vec<u8> = Vec::new();
+        loop {
+            match res.chunk().await {
+                Ok(Some(c)) => {
+                    bytes.extend_from_slice(&c);
+                    if bytes.len() > MAX_BYTES {
+                        return Err(FetchError::new(ErrorKind::Other, "Page too large"));
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    if e.is_timeout() {
+                        return Err(FetchError::new(ErrorKind::Timeout, format!("Timed out after {TIMEOUT_SECS}s")));
+                    }
+                    let chain = error_chain(&e);
+                    if chain.contains("close_notify") && looks_complete(&bytes) {
+                        break;
+                    }
+                    return Err(FetchError::from_message(format!("Read failed: {}", root_cause(&e)), &chain));
+                }
+            }
         }
         return Ok((String::from_utf8_lossy(&bytes).into_owned(), current));
     }
-    Err("Too many redirects".into())
+    Err(FetchError::new(ErrorKind::Other, "Too many redirects"))
+}
+
+/// Fetch with at most one retry of a transient failure (see `errors::retry_delay`).
+/// Runs inside the caller's per-host slot, so the retry never overlaps another request to the host.
+pub async fn fetch_page(client: &reqwest::Client, url: &str) -> Result<(String, String), FetchError> {
+    match fetch_once(client, url).await {
+        Err(e) => match retry_delay(&e) {
+            Some(wait) => {
+                tokio::time::sleep(wait).await;
+                fetch_once(client, url).await.map_err(|mut e2| {
+                    e2.attempts = 2;
+                    e2
+                })
+            }
+            None => Err(e),
+        },
+        ok => ok,
+    }
 }
 
 fn root_cause(e: &dyn std::error::Error) -> String {
@@ -84,6 +148,16 @@ fn root_cause(e: &dyn std::error::Error) -> String {
         cur = s;
     }
     cur.to_string()
+}
+
+/// True if the page title is a known bot-challenge interstitial.
+pub fn is_challenge_page(html: &str) -> bool {
+    let lower = html.to_ascii_lowercase();
+    let Some(i) = lower.find("<title") else { return false };
+    let rest = &lower[i..];
+    let end = rest.find("</title").unwrap_or(rest.len().min(300));
+    let title = &rest[..end];
+    title.contains("just a moment") || title.contains("attention required")
 }
 
 pub struct Outcome {
@@ -105,6 +179,8 @@ pub fn process(watch: &Watch, prev: &WatchState, html: &str, final_url: &str, no
     entry.last_checked = Some(now.into());
     entry.last_status = Some("ok".into());
     entry.last_error = None;
+    entry.error_kind = None;
+    entry.error_message = None;
     entry.last_hash = Some(content.hash.clone());
     entry.lines = lines.clone();
     entry.links = links.clone();
@@ -151,14 +227,17 @@ pub fn now_string() -> String {
 pub async fn check_watch(client: &reqwest::Client, watch: &Watch, prev: &WatchState) -> Outcome {
     let now = now_string();
     let res = match fetch_page(client, &watch.url).await {
-        Ok((html, final_url)) => process(watch, prev, &html, &final_url, &now),
+        Ok((html, _)) if is_challenge_page(&html) => Err(FetchError::challenge()),
+        Ok((html, final_url)) => process(watch, prev, &html, &final_url, &now).map_err(|m| FetchError::from_process(&m)),
         Err(e) => Err(e),
     };
     res.unwrap_or_else(|e| {
         let mut entry = prev.clone();
         entry.last_checked = Some(now);
         entry.last_status = Some("error".into());
-        entry.last_error = Some(e);
+        entry.error_kind = Some(e.kind.as_str().into());
+        entry.error_message = Some(friendly(&e));
+        entry.last_error = Some(e.raw);
         Outcome { entry, event: None, diff: None }
     })
 }
@@ -379,6 +458,15 @@ mod tests {
         let m = ev.item_matches.iter().find(|m| m.kind == "link").unwrap();
         assert_eq!(ev.new_links[m.index].text, "China tightens rare earth export controls");
         assert!(ev.item_matches.iter().all(|m| m.kind != "link" || m.index == 0 || ev.new_links[m.index].text.contains("rare earth")));
+    }
+
+    #[test]
+    fn challenge_pages_and_complete_bodies() {
+        assert!(is_challenge_page("<html><head><title>Just a moment...</title></head>"));
+        assert!(is_challenge_page("<TITLE>Attention Required! | Cloudflare</TITLE>"));
+        assert!(!is_challenge_page("<html><title>Ministry news</title><body>just a moment of silence</body>"));
+        assert!(looks_complete(b"<html><body>x</body></HTML>\n"));
+        assert!(!looks_complete(b"<html><body>x"));
     }
 
     #[test]

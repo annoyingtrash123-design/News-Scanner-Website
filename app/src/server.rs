@@ -152,6 +152,7 @@ fn watch_view(d: &crate::store::Data, w: &Watch) -> Value {
         "category": if w.category.is_empty() { crate::defaults::OTHER } else { w.category.as_str() }, "createdAt": w.created_at,
         "lastChecked": s.last_checked, "lastChanged": s.last_changed,
         "lastStatus": s.last_status, "lastError": s.last_error,
+        "errorKind": s.error_kind, "errorMessage": s.error_message,
     })
 }
 

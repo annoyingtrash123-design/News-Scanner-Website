@@ -1,6 +1,7 @@
 mod checker;
 mod core;
 mod defaults;
+mod errors;
 mod keywords;
 mod mailer;
 mod server;

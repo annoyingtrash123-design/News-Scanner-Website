@@ -212,3 +212,31 @@ export function coverageText(cov, run, now = Date.now()) {
 export function categoryCoverage(watches, run) {
   return { checked: watches.filter((w) => isChecked(w, run)).length, total: watches.length };
 }
+
+// ---------- failure reasons ----------
+
+/** Failure categories (see errorKind) in display order, with the heading used when grouping failed sites. */
+export const ERROR_GROUPS = [
+  ['blocked', 'Blocked by bot protection or paywall'],
+  ['server', "The site's server returned an error"],
+  ['tls', 'Secure connection failed'],
+  ['timeout', 'Timed out'],
+  ['dns', "Couldn't look up the site's address (DNS)"],
+  ['connection', 'Connection cut off'],
+  ['no_text', 'No readable text (probably needs JavaScript)'],
+  ['not_found', 'Page not found'],
+  ['other', 'Other problems'],
+];
+
+/** Category of a failed site; sites saved before categories existed fall under "other". */
+export const errorKindOf = (w) => (ERROR_GROUPS.some(([k]) => k === w.errorKind) ? w.errorKind : 'other');
+
+/** Friendly message for a failed site (falls back to the raw error for older saved results). */
+export const errorText = (w) => w.errorMessage || w.lastError || 'Check failed';
+
+/** Group failed sites by reason: [{ kind, label, items }] in display order, empty groups left out. */
+export function groupByErrorKind(sites) {
+  return ERROR_GROUPS
+    .map(([kind, label]) => ({ kind, label, items: sites.filter((w) => errorKindOf(w) === kind) }))
+    .filter((g) => g.items.length);
+}

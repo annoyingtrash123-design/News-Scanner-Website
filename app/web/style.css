@@ -108,6 +108,11 @@ input[type="search"] { font: inherit; color: inherit; background: var(--card); b
 .calm { color: var(--muted); padding: 18px; border: 1px dashed var(--line); border-radius: 12px; margin: 0; }
 details > summary { margin-bottom: 8px; }
 .list.compact .err-text { margin-top: 0; }
+.err-group { margin: 10px 0; }
+.err-group > ul { margin-top: 4px; }
+.reasons { color: var(--err); font-size: 13px; margin: 0 0 8px; }
+.reasons:empty { display: none; }
+.rows .st-why { color: var(--muted); font-size: 12px; flex-basis: 100%; order: 10; }
 
 /* relevance, coverage, Sydney-time buckets */
 :root { --hi-bg: #fee2e2; --hi-fg: #991b1b; --med-bg: #fef3c7; --med-fg: #92400e; --low-bg: #f5f5f4; --low-fg: #78716c; --mark: #fde68a; --warn: #b45309; }

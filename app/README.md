@@ -7,11 +7,11 @@ It is a single program. No installation, no account, nothing else to set up.
 ## Your morning routine
 
 1. Double-click `news-scanner`. Your browser opens News Scanner (or copy the address shown in the window into your browser).
-2. Wait for the scan. It starts by itself a couple of seconds after launch and checks all sites a few at a time; a thin "Checking 12 of 37..." line shows progress. You can also press **Check all now**.
+2. Wait for the scan. It starts by itself a couple of seconds after launch and checks all sites a few at a time; a thin "Checking 12 of 181..." line shows progress. You can also press **Check all now**.
 3. Read **New since your last visit** on the **Updates** tab: new documents first, then new links, then a few added-text excerpts, grouped by site.
 4. Press **Mark all as read**. Next time only newer items appear. The browser tab title shows the count, e.g. "(5) News Scanner".
 
-The **Sites** tab lists every watched site by category, with status, a filter box, **Copy list** and **Export CSV**. A built-in list of about 37 government and company news pages is added on first launch; remove any you do not want (removed ones do not come back) or add your own. **Settings > Reset to built-in list** re-adds any built-in sites you removed.
+The **Sites** tab lists every watched site by category, with status, a filter box, **Copy list** and **Export CSV**. A built-in list of government, company, exchange and industry news pages (181 at the time of writing) is added on first launch; remove any you do not want (removed ones do not come back) or add your own. **Settings > Reset to built-in list** re-adds any built-in sites you removed.
 
 Notes:
 
@@ -19,6 +19,18 @@ Notes:
 - Sites with bot protection or JavaScript-only pages may fail to load. They appear under **Couldn't check** (with the reason) on the Updates tab and in the Sites tab.
 - Trivial changes (dates, times, "5 minutes ago", very short text) are ignored; an update is only reported for new documents, new links or meaningful new text.
 - No login, no account and no email setup are needed.
+
+### Why some sites can't be checked
+
+Sites that fail appear under **Couldn't check** on the Updates tab (and in the Sites tab), grouped by reason, each with a plain-English message and the technical detail on hover. They never count as checked. Transient failures (timeouts, dropped connections, temporary server errors) are retried once after a few seconds; a site that succeeds on the retry counts as checked.
+
+- **Blocked by bot protection or paywall** (HTTP 401/403/412/429, or a "Just a moment..." challenge page): the site refuses automated visitors. The scanner does not try to get around this and does not retry. Use the Chrome extension for these sites: it fetches pages with your own browser.
+- **The site's server returned an error** (HTTP 5xx): usually temporary, or the site is down.
+- **Secure connection failed**: a certificate or handshake problem. On Windows and macOS the app uses the operating system's own certificate store, which resolves most of these.
+- **Timed out** (after 35 seconds) or **connection cut off**: the site was too slow or dropped the connection, even after one retry.
+- **Couldn't look up the site's address (DNS)**: check your internet connection.
+- **No readable text**: the page loaded but its content is built by JavaScript, which the scanner does not run. The Chrome extension helps only if the content is in the page it fetches; some such pages cannot be watched at all.
+- **Page not found** (404/410): the address has probably changed. Remove the site or add its new address.
 
 ### "Unidentified developer" / "Windows protected your PC"
 

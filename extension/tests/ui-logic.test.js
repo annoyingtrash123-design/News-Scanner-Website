@@ -141,3 +141,13 @@ test('category coverage', () => {
   const ws = [W('a', 'ok', '2026-11-03T00:01:00.000Z'), W('b', 'error', '2026-11-03T00:02:00.000Z'), W('c', undefined, undefined)];
   assert.deepEqual(ui.categoryCoverage(ws, RUN), { checked: 1, total: 3 });
 });
+
+test('failed sites are grouped by reason, in display order', async () => {
+  const m = await import('../ui-logic.js');
+  const w = (id, errorKind, extra = {}) => ({ id, lastStatus: 'error', errorKind, lastError: 'raw', ...extra });
+  const g = m.groupByErrorKind([w(1, 'timeout'), w(2, 'blocked'), w(3, 'blocked'), w(4, undefined), w(5, 'weird')]);
+  assert.deepEqual(g.map((x) => [x.kind, x.items.length]), [['blocked', 2], ['timeout', 1], ['other', 2]]);
+  assert.equal(m.errorText({ errorMessage: 'Friendly', lastError: 'raw' }), 'Friendly');
+  assert.equal(m.errorText({ lastError: 'raw' }), 'raw');
+  assert.equal(m.errorText({}), 'Check failed');
+});

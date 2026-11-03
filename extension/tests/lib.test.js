@@ -111,14 +111,71 @@ test('stored caps and error meta keeps old hash', async () => {
 test('page problems: bot challenge, JS-only, HTTP errors', () => {
   const p = (o) => lib.pageProblem({ status: 200, title: '', textLength: 500, hasSelector: false, ...o });
   assert.equal(p({}), null);
-  assert.equal(p({ title: 'Just a moment...' }), lib.BOT_ERROR);
-  assert.equal(p({ title: 'Attention Required! | Cloudflare' }), lib.BOT_ERROR);
-  for (const status of [403, 429, 503]) assert.equal(p({ status }), lib.BOT_ERROR);
-  assert.equal(p({ status: 404 }), 'HTTP 404');
-  assert.equal(p({ textLength: 10 }), lib.JS_ERROR);
+  assert.equal(p({ title: 'Just a moment...' }).errorKind, 'blocked');
+  assert.equal(p({ title: 'Attention Required! | Cloudflare', status: 403 }).errorKind, 'blocked');
+  for (const status of [403, 429, 401, 412]) assert.equal(p({ status }).errorKind, 'blocked');
+  assert.equal(p({ status: 503 }).errorKind, 'server');
+  assert.equal(p({ status: 404 }).errorKind, 'not_found');
+  assert.equal(p({ status: 404 }).error, 'HTTP 404');
+  assert.equal(p({ textLength: 10 }).errorKind, 'no_text');
   assert.equal(p({ textLength: 10, hasSelector: true }), null);
-  assert.equal(p({ textLength: 0, hasSelector: true }), 'No text found on page');
-  assert.match(lib.BOT_ERROR, /open it once in Chrome, then Check all again/);
+  assert.equal(p({ textLength: 0, hasSelector: true }).error, 'No text found on page');
+  assert.match(lib.BOT_ERROR, /Opening the site once in Chrome sometimes helps/);
+});
+
+test('error classification: statuses and messages', () => {
+  for (const s of [401, 403, 412, 429]) assert.equal(lib.kindForStatus(s), 'blocked');
+  for (const s of [404, 410]) assert.equal(lib.kindForStatus(s), 'not_found');
+  for (const s of [500, 502, 503, 520, 524]) assert.equal(lib.kindForStatus(s), 'server');
+  assert.equal(lib.kindForStatus(418), 'other');
+  const k = lib.kindForMessage;
+  assert.equal(k('invalid peer certificate: UnknownIssuer'), 'tls');
+  assert.equal(k('received fatal alert: HandshakeFailure'), 'tls');
+  assert.equal(k('peer closed connection without sending TLS close_notify'), 'tls');
+  assert.equal(k('forcibly closed by the remote host (os error 10054)'), 'connection');
+  assert.equal(k('hostname resolution (os error 11002)'), 'dns');
+  assert.equal(k('Timed out after 35s'), 'timeout');
+  assert.equal(k('something odd'), 'other');
+});
+
+test('retry policy: transient failures once, never blocked', () => {
+  const r = (errorKind, error, extra = {}) => lib.fail(errorKind, error, extra);
+  const http = (status, extra = {}) => r(lib.kindForStatus(status), `HTTP ${status}`, { status, ...extra });
+  for (const s of [502, 503, 504, 520, 522, 524]) assert.equal(lib.retryDelayMs(http(s)), 3000, String(s));
+  for (const s of [500, 404, 410, 400]) assert.equal(lib.retryDelayMs(http(s)), null, String(s));
+  for (const s of [401, 403, 412]) assert.equal(lib.retryDelayMs(http(s, { retryAfter: 1 })), null, String(s));
+  assert.equal(lib.retryDelayMs(r('blocked', 'Bot-challenge page')), null);
+  assert.equal(lib.retryDelayMs(http(429)), null);
+  assert.equal(lib.retryDelayMs(http(429, { retryAfter: 61 })), null);
+  assert.equal(lib.retryDelayMs(http(429, { retryAfter: 60 })), 60000);
+  assert.equal(lib.retryDelayMs(http(429, { retryAfter: 5 })), 5000);
+  assert.equal(lib.retryDelayMs(r('timeout', 'Timed out after 35s')), 3000);
+  assert.equal(lib.retryDelayMs(r('connection', lib.NETWORK_ERROR)), 3000);
+  assert.equal(lib.retryDelayMs(r('connection', 'Connection refused (os error 10061)')), null);
+  assert.equal(lib.retryDelayMs(r('dns', 'temporary (os error 11002)')), 3000);
+  assert.equal(lib.retryDelayMs(r('dns', 'ERR_NAME_NOT_RESOLVED')), null);
+  assert.equal(lib.retryDelayMs(r('tls', 'peer closed connection without sending TLS close_notify')), 3000);
+  assert.equal(lib.retryDelayMs(r('tls', 'UnknownIssuer')), null);
+  assert.equal(lib.retryDelayMs(r('no_text', 'No text found on page')), null);
+  assert.equal(lib.retryDelayMs(r('timeout', 'Timed out', { attempts: 2 })), null);
+  assert.equal(lib.retryDelayMs({ ok: true }), null);
+  assert.equal(lib.parseRetryAfter('7'), 7);
+  assert.equal(lib.parseRetryAfter('Wed, 21 Oct 2026 07:28:00 GMT'), null);
+  assert.equal(lib.parseRetryAfter(null), null);
+});
+
+test('friendly messages and error state', () => {
+  assert.equal(lib.friendlyError(lib.fail('blocked', 'HTTP 403', { status: 403 })), lib.BOT_ERROR);
+  assert.equal(lib.friendlyError(lib.fail('server', 'HTTP 520', { status: 520 })), "The site's own server returned an error (HTTP 520) — usually temporary or the site is down.");
+  assert.equal(lib.friendlyError(lib.fail('timeout', 'x', { attempts: 2 })), 'Timed out after 35s (tried twice).');
+  assert.match(lib.friendlyError(lib.fail('no_text', 'x')), /needs JavaScript/);
+  const m = lib.errorMeta({ lastHash: 'h' }, 't', lib.fail('server', 'HTTP 502', { status: 502, attempts: 2 }));
+  assert.equal(m.lastStatus, 'error');
+  assert.equal(m.lastError, 'HTTP 502');
+  assert.equal(m.errorKind, 'server');
+  assert.match(m.errorMessage, /\(tried twice\)/);
+  assert.equal(m.lastHash, 'h');
+  assert.equal(lib.errorMeta({}, 't', 'boom').errorKind, 'other');
 });
 
 test('notification text', () => {

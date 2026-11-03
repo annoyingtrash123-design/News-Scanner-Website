@@ -10,8 +10,14 @@ export const MAX_LINKS = 1500;
 export const MAX_EVENTS = 300;
 export const MAX_CONCURRENT = 4;
 
-export const BOT_ERROR = 'Site blocks automated checks — open it once in Chrome, then Check all again';
-export const JS_ERROR = "Page loads its content with JavaScript; can't be scanned";
+export const TIMEOUT_SECS = 35;
+export const RETRY_DELAY_MS = 3000;
+export const MAX_RETRY_AFTER_SECS = 60;
+
+/** Raw messages (stored as lastError). The friendly text shown to the user comes from friendlyError(). */
+export const BOT_ERROR = "Blocked by the site's bot protection or paywall. Opening the site once in Chrome sometimes helps.";
+export const JS_ERROR = "Page loaded but had no readable text — it probably needs JavaScript, which the scanner doesn't run.";
+export const NETWORK_ERROR = 'Network error (Chrome does not say whether it was DNS, TLS or the site refusing)';
 
 export function normalize(s) {
   return String(s).split(/\s+/).filter(Boolean).join(' ');
@@ -225,12 +231,81 @@ export function hostKey(url) {
 
 const CHALLENGE_TITLE = /just a moment|attention required/i;
 
-/** Returns an error message if the fetched page is not scannable, else null. */
+/** Error kinds: blocked, server, tls, timeout, dns, connection, no_text, not_found, other. */
+export function kindForStatus(status) {
+  if ([401, 403, 412, 429].includes(status)) return 'blocked';
+  if (status === 404 || status === 410) return 'not_found';
+  if (status >= 500 && status <= 599) return 'server';
+  return 'other';
+}
+
+/** Classify a low-level error message (any case). */
+export function kindForMessage(msg) {
+  const m = String(msg || '').toLowerCase();
+  const has = (...ns) => ns.some((n) => m.includes(n));
+  if (has('unknownissuer', 'certificate', 'handshake', 'close_notify', 'tls', 'ssl', 'err_cert', 'invalid peer')) return 'tls';
+  if (has('timed out', 'timeout', 'os error 10060', 'err_timed_out')) return 'timeout';
+  if (has('dns', 'name resolution', 'no such host', 'os error 11001', 'os error 11002', 'err_name_not_resolved')) return 'dns';
+  if (has('connection reset', 'connection refused', 'connection closed', 'connection aborted', 'unexpected eof', 'os error 10054', 'os error 10053', 'os error 10061', 'network error', 'err_connection', 'failed to fetch')) return 'connection';
+  return 'other';
+}
+
+/** Build a failed scan result: { ok:false, error (raw), errorKind, status?, retryAfter?, attempts }. */
+export function fail(errorKind, error, extra = {}) {
+  return { ok: false, error, errorKind, attempts: 1, ...extra };
+}
+
+export function parseRetryAfter(v) {
+  const n = /^\s*\d+\s*$/.test(String(v ?? '')) ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Whether to retry a failed scan once, and after how many ms (null = do not retry).
+ * Retried: timeouts, connection reset/closed, temporary DNS failure, TLS unexpected EOF, HTTP 502/503/504/520/522/524,
+ * and HTTP 429 only when Retry-After <= 60s. Never 401/403/412, never a bot-challenge page.
+ */
+export function retryDelayMs(r) {
+  if (!r || r.ok || (r.attempts || 1) >= 2) return null;
+  const m = String(r.error || '').toLowerCase();
+  switch (r.errorKind) {
+    case 'blocked':
+      return r.status === 429 && r.retryAfter != null && r.retryAfter <= MAX_RETRY_AFTER_SECS ? r.retryAfter * 1000 : null;
+    case 'server': return [502, 503, 504, 520, 522, 524].includes(r.status) ? RETRY_DELAY_MS : null;
+    case 'timeout': return RETRY_DELAY_MS;
+    case 'dns': return /temporary|try again|os error 11002|eai_again/.test(m) ? RETRY_DELAY_MS : null;
+    case 'tls': return /close_notify|unexpected eof|unexpected end of file/.test(m) ? RETRY_DELAY_MS : null;
+    case 'connection': return /refused|os error 10061/.test(m) ? null : RETRY_DELAY_MS;
+    default: return null;
+  }
+}
+
+/** Plain-English message for a failed scan result. */
+export function friendlyError(r) {
+  const tried = (r.attempts || 1) >= 2 ? ' (tried twice)' : '';
+  const http = r.status ? ` (HTTP ${r.status})` : '';
+  switch (r.errorKind) {
+    case 'blocked': return BOT_ERROR;
+    case 'server': return `The site's own server returned an error${http} — usually temporary or the site is down${tried}.`;
+    case 'tls': return `Secure connection failed (certificate/handshake)${tried}.`;
+    case 'timeout': return `Timed out after ${TIMEOUT_SECS}s${tried}.`;
+    case 'dns': return `Couldn't look up the site's address (DNS) — check your internet connection${tried}.`;
+    case 'connection':
+      return r.error === NETWORK_ERROR
+        ? `Couldn't connect to the site — it may be down, you may be offline, or its certificate may be bad${tried}.`
+        : `Connection was cut off by the site${tried}.`;
+    case 'no_text': return JS_ERROR;
+    case 'not_found': return `Page not found${http} — the address may have changed or been removed.`;
+    default: return r.error || 'Check failed';
+  }
+}
+
+/** Returns a failed scan result ({ok:false,...}) if the fetched page is not scannable, else null. */
 export function pageProblem({ status, title, textLength, hasSelector }) {
-  if (CHALLENGE_TITLE.test(title || '') || status === 403 || status === 429 || status === 503) return BOT_ERROR;
-  if (status < 200 || status >= 300) return `HTTP ${status}`;
-  if (textLength === 0) return 'No text found on page';
-  if (!hasSelector && textLength < 50) return JS_ERROR;
+  if (CHALLENGE_TITLE.test(title || '')) return fail('blocked', 'Bot-challenge page (e.g. "Just a moment...")', { status: status >= 200 && status < 300 ? undefined : status });
+  if (status < 200 || status >= 300) return fail(kindForStatus(status), `HTTP ${status}`, { status });
+  if (textLength === 0) return fail('no_text', 'No text found on page');
+  if (!hasSelector && textLength < 50) return fail('no_text', 'Too little text on page (likely JavaScript-only)');
   return null;
 }
 
@@ -243,7 +318,7 @@ export function processScan(watch, prev, content, now) {
   const links = content.links.slice(0, MAX_LINKS);
   const prevMeta = prev.meta || {};
   const prevSnap = prev.snap || { lines: [], links: [] };
-  const meta = { ...prevMeta, lastChecked: now, lastStatus: 'ok', lastError: null, lastHash: content.hash };
+  const meta = { ...prevMeta, lastChecked: now, lastStatus: 'ok', lastError: null, errorKind: null, errorMessage: null, lastHash: content.hash };
   const snap = { lines, links };
   if (!prevMeta.lastHash || prevMeta.lastHash === content.hash) return { meta, snap, event: null, diff: null };
   const diff = computeDiff(prevSnap.lines, prevSnap.links, lines, links, 20);
@@ -258,8 +333,10 @@ export function processScan(watch, prev, content, now) {
   return { meta, snap, event, diff };
 }
 
-export function errorMeta(prevMeta, now, message) {
-  return { ...(prevMeta || {}), lastChecked: now, lastStatus: 'error', lastError: message };
+/** `failure` is a failed scan result (see fail()) or a plain message string. */
+export function errorMeta(prevMeta, now, failure) {
+  const r = typeof failure === 'string' ? fail('other', failure) : failure;
+  return { ...(prevMeta || {}), lastChecked: now, lastStatus: 'error', lastError: r.error, errorKind: r.errorKind || 'other', errorMessage: friendlyError(r) };
 }
 
 // ---------- seeding ----------

@@ -59,6 +59,10 @@ pub struct WatchState {
     pub last_hash: Option<String>,
     pub last_status: Option<String>,
     pub last_error: Option<String>,
+    /// Category of the last failure (blocked, server, tls, timeout, dns, connection, no_text, not_found, other).
+    pub error_kind: Option<String>,
+    /// Plain-English version of `last_error`.
+    pub error_message: Option<String>,
     pub lines: Vec<String>,
     pub links: Vec<Link>,
 }

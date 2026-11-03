@@ -1,5 +1,5 @@
 import {
-  bucketGroups, categoryCoverage, chipsFor, coverage, coverageText, formatSydney, groupEvents, highlightSegments, hostOf, isChecked,
+  bucketGroups, categoryCoverage, chipsFor, coverage, coverageText, formatSydney, groupEvents, errorText, groupByErrorKind, highlightSegments, hostOf, isChecked,
 } from '/ui-logic.js';
 
 const $ = (id) => document.getElementById(id);
@@ -189,7 +189,7 @@ function renderUpdates() {
   renderCouldntCheck();
 }
 
-/** Sites with an error, plus (once a full scan has finished) sites that scan never reached. Never hidden, never counted as checked. */
+/** Sites with an error (grouped by reason), plus (once a full scan has finished) sites that scan never reached. Never hidden, never counted as checked. */
 function renderCouldntCheck() {
   const run = state.fullRun;
   const cov = coverage(state.watches, run, runActive());
@@ -198,11 +198,18 @@ function renderCouldntCheck() {
   const all = bad.length + missed.length;
   $('errors-box').hidden = all === 0;
   $('errors-summary').textContent = `Couldn't check (${all})`;
-  $('errors').replaceChildren(...bad.map((w) => el('li', null,
-    link(w.url, w.label || hostOf(w.url)), el('div', { class: 'err-text', text: w.lastError || 'Check failed' }))),
-  ...missed.map((w) => el('li', null,
-    link(w.url, w.label || hostOf(w.url)),
-    el('div', { class: 'err-text', text: w.lastStatus === 'ok' ? `Not reached in the latest scan (last successful check ${formatSydney(w.lastChecked)})` : 'Not checked yet' }))));
+  const site = (w, text, title) => el('li', null,
+    link(w.url, w.label || hostOf(w.url)), el('div', { class: 'err-text', text, title: title || '' }));
+  const groups = groupByErrorKind(bad).map((g) => el('li', { class: 'err-group' },
+    el('strong', { text: `${g.label} (${g.items.length})` }),
+    el('ul', { class: 'list compact' }, ...g.items.map((w) => site(w, errorText(w), w.lastError ? `Technical detail: ${w.lastError}` : '')))));
+  if (missed.length) {
+    groups.push(el('li', { class: 'err-group' },
+      el('strong', { text: `Not reached in the latest scan (${missed.length})` }),
+      el('ul', { class: 'list compact' }, ...missed.map((w) => site(w,
+        w.lastStatus === 'ok' ? `Not reached in the latest scan (last successful check ${formatSydney(w.lastChecked)})` : 'Not checked yet')))));
+  }
+  $('errors').replaceChildren(...groups);
 }
 
 $('mark-seen').addEventListener('click', async () => {
@@ -212,7 +219,7 @@ $('mark-seen').addEventListener('click', async () => {
 
 // ---------- sites ----------
 function statusOf(w) {
-  if (w.lastStatus === 'error') return { key: 'error', text: "Couldn't check", title: w.lastError || 'Check failed', bad: true };
+  if (w.lastStatus === 'error') return { key: 'error', text: "Couldn't check", title: `${errorText(w)}${w.lastError ? `\nTechnical detail: ${w.lastError}` : ''}`, bad: true };
   if (w.lastStatus === 'ok') return w.lastChanged
     ? { key: 'ok', text: `OK · changed ${ago(w.lastChanged)}` }
     : { key: 'ok', text: 'No changes yet' };
@@ -226,6 +233,7 @@ function renderSites() {
   const bad = all.filter((w) => w.lastStatus === 'error').length;
   const wait = all.length - ok - bad;
   $('totals').textContent = `${plural(all.length, 'site')} · ${ok} OK · ${bad} couldn't check${wait ? ` · ${wait} not checked yet` : ''}`;
+  $('reasons').textContent = groupByErrorKind(all.filter((w) => w.lastStatus === 'error')).map((g) => `${g.label} (${g.items.length})`).join(' · ');
   const q = $('filter').value.trim().toLowerCase();
   const shown = all.filter((w) => !q || `${w.label} ${w.url} ${catOf(w)}`.toLowerCase().includes(q));
   $('watches-empty').hidden = shown.length > 0;
@@ -252,6 +260,7 @@ function renderSites() {
           w.documentsOnly ? el('span', { class: 'tag', text: 'docs only' }) : null,
           w.selector ? el('span', { class: 'tag', text: 'part of page' }) : null),
         el('span', { class: `st${st.bad ? ' bad' : ''}`, text: st.text, title: st.title || '' }),
+        st.bad ? el('span', { class: 'st-why', text: errorText(w) }) : null,
         el('span', { class: 'when', text: w.lastChecked ? `checked ${ago(w.lastChecked)}` : '', title: w.lastChecked ? formatSydney(w.lastChecked) : '' }),
         link(w.url, 'Open ↗', 'link-a'), rm);
     })));

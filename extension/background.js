@@ -151,13 +151,23 @@ async function scanPage(w) {
       await ensureOffscreen();
       const r = await Promise.race([
         chrome.runtime.sendMessage(msg),
-        new Promise((res) => setTimeout(() => res({ ok: false, error: 'Timed out after 20s' }), 45000)),
+        new Promise((res) => setTimeout(() => res(lib.fail('timeout', `Timed out after ${lib.TIMEOUT_SECS}s`)), (lib.TIMEOUT_SECS + 15) * 1000)),
       ]);
       if (r) return r;
     } catch { /* offscreen not ready or was closed: retry once */ }
     await new Promise((r) => setTimeout(r, 300));
   }
-  return { ok: false, error: 'Internal error: page parser unavailable' };
+  return lib.fail('other', 'Internal error: page parser unavailable');
+}
+
+/** One scan, plus at most one retry of a transient failure (see lib.retryDelayMs). Runs inside the host's slot. */
+async function scanWithRetry(w) {
+  const r = await scanPage(w);
+  const wait = lib.retryDelayMs(r);
+  if (wait == null) return r;
+  await new Promise((res) => setTimeout(res, wait));
+  const r2 = await scanPage(w);
+  return r2.ok ? r2 : { ...r2, attempts: 2 };
 }
 
 // ---------- checking ----------
@@ -166,7 +176,7 @@ let active = null;
 const queued = new Set();
 
 async function checkOne(w) {
-  const scan = await scanPage(w);
+  const scan = await scanWithRetry(w);
   const now = nowIso();
   return locked(async () => {
     const d = await chrome.storage.local.get({ watches: [], states: {}, events: [] });
@@ -182,7 +192,7 @@ async function checkOne(w) {
       toSet[snapKey] = out.snap;
       event = out.event;
     } else {
-      d.states[w.id] = lib.errorMeta(prevMeta, now, scan.error);
+      d.states[w.id] = lib.errorMeta(prevMeta, now, scan);
     }
     toSet.states = d.states;
     if (event) toSet.events = [event, ...d.events].slice(0, lib.MAX_EVENTS);

@@ -9,7 +9,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time",
 axum = { version = "0.7", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip"] }
+reqwest = { version = "0.12", default-features = false, features = ["gzip"] }
 scraper = "0.20"
 sha2 = "0.10"
 hex = "0.4"
@@ -22,6 +22,14 @@ rust-embed = "8"
 anyhow = "1"
 dirs = "5"
 hmac = "0.12"
+
+# Linux: rustls with bundled roots (no OpenSSL needed to build).
+[target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+
+# Windows / macOS: the operating system's TLS stack and certificate store.
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["native-tls"] }
 
 [profile.release]
 opt-level = "s"

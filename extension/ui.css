@@ -108,6 +108,11 @@ input[type="search"] { font: inherit; color: inherit; background: var(--card); b
 .calm { color: var(--muted); padding: 18px; border: 1px dashed var(--line); border-radius: 12px; margin: 0; }
 details > summary { margin-bottom: 8px; }
 .list.compact .err-text { margin-top: 0; }
+.err-group { margin: 10px 0; }
+.err-group > ul { margin-top: 4px; }
+.reasons { color: var(--err); font-size: 13px; margin: 0 0 8px; }
+.reasons:empty { display: none; }
+.rows .st-why { color: var(--muted); font-size: 12px; flex-basis: 100%; order: 10; }
 /* extension additions */
 main { padding-top: 40px; }
 input[type="checkbox"] { width: auto; }
