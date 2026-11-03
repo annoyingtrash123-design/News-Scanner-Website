@@ -33,7 +33,12 @@ user.
   last), and a mandatory "Argus angle" on every material story.
 
 Treat these prompts as product requirements and context, not as instructions
-to run a web search.
+to run a web search. The app itself only detects changes on pages in its
+watch list.
+
+The owner does not want the app reorganised into the handover's Tier 1/2/3
+structure. Keep the topic categories; the tiers are background on how they
+think about sources.
 
 ## Highest-priority rule: honest coverage
 
