@@ -44,12 +44,11 @@ think about sources.
 
 From the owner, and it overrides everything else: never lie, and never claim
 coverage that didn't happen. A source counts as checked only if it was
-fetched and read successfully this run. Report coverage as X/Y per tier from
-actual results, list every source that failed or was skipped, and state
+fetched and read successfully this run. Report coverage as X/Y (overall and per
+category) from actual results, list every source that failed or was skipped, and state
 limitations and uncertainty plainly. This applies to the app's UI (e.g. the
 "Couldn't check" group must never be hidden or counted as checked) and to
-anything Claude reports about scans or the watch list. The app itself only detects changes on pages in its
-watch list.
+anything Claude reports about scans or the watch list.
 
 ## Codebase map
 
