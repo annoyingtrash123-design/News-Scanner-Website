@@ -7,8 +7,14 @@ pub const RESOURCES: &str = "State & Territory \u{2013} Resources Departments";
 pub const PREMIERS: &str = "State Premiers & Ministerial Releases";
 pub const PLANNING: &str = "Planning & Industry Bodies";
 pub const COMPANIES: &str = "Companies";
+pub const EV_NEWS: &str = "EV & Battery News";
+pub const ASIA_PRESS: &str = "Korea & Japan Press";
+pub const MINING_MEDIA: &str = "Mining & Metals Media";
+pub const AU_PRESS: &str = "Australian Press";
+pub const TRADE_DATA: &str = "Trade Data & Foreign Governments";
+pub const MAGNETS: &str = "Magnets & Rare Earths";
 pub const OTHER: &str = "Other";
-pub const CATEGORIES: [&str; 6] = [FEDERAL, RESOURCES, PREMIERS, PLANNING, COMPANIES, OTHER];
+pub const CATEGORIES: [&str; 12] = [FEDERAL, RESOURCES, PREMIERS, PLANNING, COMPANIES, EV_NEWS, ASIA_PRESS, MINING_MEDIA, AU_PRESS, TRADE_DATA, MAGNETS, OTHER];
 
 /// (stable_id, label, url, category). Never change an id once shipped; add new entries at the end.
 pub const DEFAULTS: &[(&str, &str, &str, &str)] = &[
@@ -49,6 +55,95 @@ pub const DEFAULTS: &[(&str, &str, &str, &str)] = &[
     ("cobra-announcements", "Cobra \u{2013} Announcements", "https://investors.cobraplc.com/announcements", COMPANIES),
     ("lis-energy", "LIS Energy", "https://www.lis.energy/news-and-resources/", COMPANIES),
     ("aspiring-materials", "Aspiring Materials", "https://www.aspiringmaterials.com/", COMPANIES),
+    ("powerplus-energy", "PowerPlus Energy", "https://www.powerplus-energy.com.au/", COMPANIES),
+    ("sicona", "Sicona", "https://www.siconabattery.com/", COMPANIES),
+    ("electrive", "electrive.com", "https://www.electrive.com/", EV_NEWS),
+    ("the-driven", "The Driven", "https://thedriven.io/", EV_NEWS),
+    ("electrek", "Electrek", "https://electrek.co/", EV_NEWS),
+    ("insideevs", "InsideEVs", "https://insideevs.com/news/", EV_NEWS),
+    ("the-ev-report", "The EV Report", "https://theevreport.com/", EV_NEWS),
+    ("ev-infrastructure-news", "EV Infrastructure News", "https://www.evinfrastructurenews.com/", EV_NEWS),
+    ("energy-storage-news", "Energy-Storage.News", "https://www.energy-storage.news/", EV_NEWS),
+    ("benchmark-minerals", "Benchmark Mineral Intelligence", "https://source.benchmarkminerals.com/", EV_NEWS),
+    ("abri", "ABRI \u{2013} Battery Recycling & Reuse Industry", "https://www.batteryrecycling.org.au/", EV_NEWS),
+    ("ambc", "AMBC", "https://www.ambc.org.au/", EV_NEWS),
+    ("ns-energy", "NS Energy", "https://www.nsenergybusiness.com/", EV_NEWS),
+    ("korea-herald", "The Korea Herald", "https://www.koreaherald.com/", ASIA_PRESS),
+    ("korea-joongang-daily", "Korea JoongAng Daily", "https://www.koreajoongangdaily.com/", ASIA_PRESS),
+    ("nikkei-asia", "Nikkei Asia", "https://asia.nikkei.com/", ASIA_PRESS),
+    ("maeil-business", "Maeil Business", "https://www.mk.co.kr/", ASIA_PRESS),
+    ("pulse-mk", "Pulse (Maeil Business English)", "https://pulse.mk.co.kr/", ASIA_PRESS),
+    ("ked-global", "KED Global", "https://www.kedglobal.com/", ASIA_PRESS),
+    ("korea-times", "The Korea Times", "https://www.koreatimes.co.kr/", ASIA_PRESS),
+    ("businesskorea", "Businesskorea", "https://www.businesskorea.co.kr/", ASIA_PRESS),
+    ("the-elec", "THE ELEC", "https://www.thelec.net/", ASIA_PRESS),
+    ("seoul-economic-daily", "Seoul Economic Daily", "https://en.sedaily.com/", ASIA_PRESS),
+    ("sumitomo-electric", "Sumitomo Electric", "https://sumitomoelectric.com/", MAGNETS),
+    ("stockhead", "Stockhead", "https://stockhead.com.au/", MINING_MEDIA),
+    ("mining-com", "MINING.COM", "https://www.mining.com/", MINING_MEDIA),
+    ("mining-com-au", "Mining.com.au", "https://mining.com.au/", MINING_MEDIA),
+    ("australian-mining", "Australian Mining", "https://www.australianmining.com.au/", MINING_MEDIA),
+    ("australian-mining-review", "The Australian Mining Review", "https://australianminingreview.com.au/", MINING_MEDIA),
+    ("mining-journal", "Mining Journal", "https://www.mining-journal.com/", MINING_MEDIA),
+    ("mining-magazine", "Mining Magazine", "https://www.miningmagazine.com/", MINING_MEDIA),
+    ("mining-technology", "Mining Technology", "https://www.mining-technology.com/news/", MINING_MEDIA),
+    ("mining-monthly", "MiningMonthly.com", "https://www.miningmonthly.com/", MINING_MEDIA),
+    ("mining-weekly", "Mining Weekly", "https://www.miningweekly.com/page/international-home", MINING_MEDIA),
+    ("northern-miner", "The Northern Miner", "https://www.northernminer.com/", MINING_MEDIA),
+    ("global-mining-review", "Global Mining Review", "https://www.globalminingreview.com/", MINING_MEDIA),
+    ("international-mining", "International Mining", "https://im-mining.com/", MINING_MEDIA),
+    ("fastmarkets-battery", "Fastmarkets \u{2013} Battery Raw Materials", "https://www.fastmarkets.com/metals-and-mining/battery-raw-materials/", MINING_MEDIA),
+    ("fastmarkets-metals", "Fastmarkets \u{2013} Metals & Mining", "https://www.fastmarkets.com/metals-and-mining/", MINING_MEDIA),
+    ("australian-manufacturing", "Australian Manufacturing", "https://www.australianmanufacturing.com.au/", MINING_MEDIA),
+    ("australian-resources-investment", "Australian Resources & Investment", "https://www.australianresources.com.au/", MINING_MEDIA),
+    ("rare-earth-exchanges", "Rare Earth Exchanges", "https://rareearthexchanges.com/", MINING_MEDIA),
+    ("10jqka", "同花顺财经 (10jqka)", "https://news.10jqka.com.cn/", MINING_MEDIA),
+    ("smm-cn", "上海有色网 (SMM)", "https://news.smm.cn/", MINING_MEDIA),
+    ("alcircle", "AlCircle \u{2013} A Virtual Aluminium Ecosystem", "https://www.alcircle.com/news", MINING_MEDIA),
+    ("the-australian", "The Australian", "https://www.theaustralian.com.au/", AU_PRESS),
+    ("the-west-australian", "The West Australian", "https://thewest.com.au/", AU_PRESS),
+    ("abc-news", "ABC News", "https://www.abc.net.au/", AU_PRESS),
+    ("afr", "The Australian Financial Review", "https://www.afr.com/", AU_PRESS),
+    ("afr-markets-live", "AFR \u{2013} Markets", "https://www.afr.com/markets", AU_PRESS),
+    ("global-trade-alert", "Global Trade Alert", "https://globaltradealert.org/", TRADE_DATA),
+    ("manufacturing-pmi", "Manufacturing PMI \u{2013} Countries (Trading Economics)", "https://tradingeconomics.com/country-list/manufacturing-pmi", TRADE_DATA),
+    ("imf-data", "IMF Data", "https://data.imf.org/", TRADE_DATA),
+    ("china-customs-stats", "海关统计数据查询平台 (China Customs statistics)", "http://stats.customs.gov.cn/", TRADE_DATA),
+    ("cnesa", "CNESA (中关村储能产业技术联盟)", "https://www.cnesa.org/", TRADE_DATA),
+    ("china-single-window", "中国国际贸易单一窗口", "https://www.singlewindow.cn/", TRADE_DATA),
+    ("modern-slavery-register", "Modern Slavery Statements Register", "https://modernslaveryregister.gov.au/", TRADE_DATA),
+    ("cccmc-stats", "CCCMC (中国五矿化工进出口商会)", "https://www.cccmc.org.cn/", TRADE_DATA),
+    ("customs-stats-news", "统计快讯 (China Customs)", "http://www.customs.gov.cn/customs/302249/zfxxgk/2799825/302274/302275/index.html", TRADE_DATA),
+    ("customs-latest-docs", "最新文件 (China Customs)", "http://www.customs.gov.cn/customs/302249/302266/302267/index.html", TRADE_DATA),
+    ("japangov-news", "JapanGov \u{2013} The Government of Japan", "https://www.japan.go.jp/", TRADE_DATA),
+    ("jetro-biznews", "JETRO ビジネス短信 \u{2013} 過去記事一覧", "https://www.jetro.go.jp/biznewstop/", TRADE_DATA),
+    ("meti-news-en", "METI \u{2013} News Releases", "https://www.meti.go.jp/english/press/index.html", TRADE_DATA),
+    ("meti-news-ja", "METI \u{2013} ニュースリリース", "https://www.meti.go.jp/press/index.html", TRADE_DATA),
+    ("moef-en", "SK Ministry of Finance and Economy", "https://english.mofe.go.kr/", TRADE_DATA),
+    ("moef-ko", "재정경제부 \u{2013} 보도참고자료", "https://mofe.go.kr/nw/nes/nesdta.do", TRADE_DATA),
+    ("msit-press", "과학기술정보통신부 \u{2013} Press Releases", "https://www.msit.go.kr/eng/bbs/list.do?sCode=eng&mId=4&mPid=2", TRADE_DATA),
+    ("magnetics-magazine", "Magnetics Magazine", "https://magneticsmag.com/", MAGNETS),
+    ("posco-group", "POSCO Group \u{2013} Newsroom", "https://newsroom.posco.com/en/", MAGNETS),
+    ("proterial", "Proterial \u{2013} News", "https://www.proterial.com/e/press/", MAGNETS),
+    ("noveon-magnetics", "Noveon Magnetics", "https://noveon.co/news", MAGNETS),
+    ("js-link", "JS Link", "https://www.jslink.co.kr/", MAGNETS),
+    ("vulcan-elements", "Vulcan Elements", "https://vulcanelements.com/", MAGNETS),
+    ("usa-rare-earth", "USA Rare Earth \u{2013} News", "https://investors.usare.com/news-events/press-releases", MAGNETS),
+    ("shin-etsu", "Shin-Etsu Chemical \u{2013} News", "https://www.shinetsu.co.jp/en/news/", MAGNETS),
+    ("neo-performance", "Neo Performance Materials \u{2013} News", "https://www.neomaterials.com/news/", MAGNETS),
+    ("magnequench", "Magnequench", "https://mqitechnology.com/", MAGNETS),
+    ("sojitz", "Sojitz \u{2013} News", "https://www.sojitz.com/en/news/", MAGNETS),
+    ("sumitomo-metal-mining", "Sumitomo Metal Mining \u{2013} News", "https://www.smm.co.jp/en/news/", MAGNETS),
+    ("intl-magnaproducts", "International Magnaproducts", "https://www.intlmag.com/", MAGNETS),
+    ("less-common-metals", "Less Common Metals", "https://lesscommonmetals.com/news/", MAGNETS),
+    ("saskatchewan-research-council", "Saskatchewan Research Council \u{2013} News", "https://www.src.sk.ca/news", MAGNETS),
+    ("solvay", "Solvay \u{2013} News & press releases", "https://www.solvay.com/en/newsroom/news-and-press-releases", MAGNETS),
+    ("china-star-group", "China Star Group Industry", "https://www.chinastargroup.com/en", MAGNETS),
+    ("tdk", "TDK \u{2013} News", "https://www.tdk.com/en/news_center/press/index.html", MAGNETS),
+    ("vac", "VAC (Vacuumschmelze)", "https://vacuumschmelze.com/", MAGNETS),
+    ("gkn-powder-metallurgy", "GKN Powder Metallurgy", "https://www.gknpm.com/", MAGNETS),
+    ("jogmec-news", "JOGMEC \u{2013} News Releases", "https://www.jogmec.go.jp/english/news/release/index.html", MAGNETS),
+    ("magneti-ljubljana", "Magneti Ljubljana", "https://www.magneti.si/en/", MAGNETS),
 ];
 
 /// Add every default whose id has not been seeded before. Returns the ids of watches added.
@@ -114,7 +209,7 @@ mod tests {
     #[test]
     fn category_counts_and_backfill() {
         let n = |c: &str| DEFAULTS.iter().filter(|d| d.3 == c).count();
-        assert_eq!((n(FEDERAL), n(RESOURCES), n(PREMIERS), n(PLANNING), n(COMPANIES)), (6, 7, 6, 2, 16));
+        assert_eq!((n(FEDERAL), n(RESOURCES), n(PREMIERS), n(PLANNING), n(COMPANIES)), (6, 7, 6, 2, 18));
         let mut d = Data::default();
         seed(&mut d, "t");
         d.watches[0].category.clear();

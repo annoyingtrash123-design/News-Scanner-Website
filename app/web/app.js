@@ -6,6 +6,12 @@ const CATEGORIES = [
   'State Premiers & Ministerial Releases',
   'Planning & Industry Bodies',
   'Companies',
+  'EV & Battery News',
+  'Korea & Japan Press',
+  'Mining & Metals Media',
+  'Australian Press',
+  'Trade Data & Foreign Governments',
+  'Magnets & Rare Earths',
   'Other',
 ];
 

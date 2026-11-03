@@ -16,7 +16,7 @@ const rows = [...rs.matchAll(/^\s*\("([^"]+)", "([^"]*)", "([^"]*)", (\w+)\),$/g
 const catList = /CATEGORIES: \[&str; \d+\] = \[([^\]]*)\]/.exec(rs)[1].split(',').map((s) => cats[s.trim()]);
 
 test('defaults.js matches app/src/defaults.rs exactly', () => {
-  assert.equal(rows.length, 37);
+  assert.equal(rows.length, 126);
   assert.deepEqual(CATEGORIES, catList);
   assert.deepEqual(DEFAULTS, rows);
 });
@@ -30,17 +30,17 @@ test('defaults are valid and unique', () => {
     assert.ok(!urls.has(u), `dup url ${d.url}`); urls.add(u);
   }
   const n = (c) => DEFAULTS.filter((d) => d.category === c).length;
-  assert.deepEqual(CATEGORIES.slice(0, 5).map(n), [6, 7, 6, 2, 16]);
+  assert.deepEqual(CATEGORIES.slice(0, 5).map(n), [6, 7, 6, 2, 18]);
 });
 
 test('seeds once; removed defaults stay removed; reset brings them back', () => {
   const d = { watches: [], seededDefaults: [] };
-  assert.equal(seedFrom(DEFAULTS, d, 't').length, 37);
+  assert.equal(seedFrom(DEFAULTS, d, 't').length, DEFAULTS.length);
   const gone = d.watches.splice(3, 1)[0].id;
   assert.deepEqual(seedFrom(DEFAULTS, d, 't2'), []);
   d.seededDefaults = [];
   assert.deepEqual(seedFrom(DEFAULTS, d, 't3'), [gone]);
-  assert.equal(d.watches.length, 37);
+  assert.equal(d.watches.length, DEFAULTS.length);
 });
 
 test('new defaults reach existing users and URLs are deduped', () => {
