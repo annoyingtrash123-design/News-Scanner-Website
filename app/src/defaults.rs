@@ -203,6 +203,67 @@ pub const DEFAULTS: &[(&str, &str, &str, &str)] = &[
     ("mp-materials", "MP Materials \u{2013} Investors", "https://investors.mpmaterials.com/", MAGNETS),
 ];
 
+/// Built-in feeds: (watch id, RSS/Atom feed url). Kept apart from DEFAULTS so shipped ids, labels and
+/// urls never change. Applied when seeding and, for watches without a feed, on every startup.
+pub const DEFAULT_FEEDS: &[(&str, &str)] = &[
+    ("energy-storage-news", "https://www.energy-storage.news/feed/"),
+    ("ns-energy", "https://www.nsenergybusiness.com/feed/"),
+    ("mining-com-au", "https://mining.com.au/feed/"),
+    ("mining-technology", "https://www.mining-technology.com/news/feed/"),
+    ("mining-weekly", "https://www.miningweekly.com/page/latest-news/feed"),
+    ("scandium-mining", "https://scandiummining.com/feed/"),
+    ("lynas", "https://lynasrareearths.com/feed/"),
+    ("magneti-ljubljana", "https://www.magneti.si/en/feed/"),
+    ("magnequench", "https://mqitechnology.com/feed/"),
+    ("solvay", "https://www.solvay.com/rss.xml"),
+    ("ft-commodities", "https://www.ft.com/rss/news"),
+];
+
+/// Moved addresses: (watch id, new url). Applied on startup only if the stored url still equals the
+/// id's url in DEFAULTS (a url the user changed is never touched). Add future fixes here.
+pub const DEFAULT_URL_FIXES: &[(&str, &str)] = &[
+    ("usa-rare-earth", "https://investors.usare.com/news-events/news-releases"),
+];
+
+fn default_feed(id: &str) -> Option<String> {
+    DEFAULT_FEEDS.iter().find(|(i, _)| *i == id).and_then(|(_, f)| validate_url(f).ok()).map(|u| u.to_string())
+}
+
+fn normalized(url: &str) -> Option<String> {
+    validate_url(url).ok().map(|u| u.to_string())
+}
+
+/// Startup migration for existing watches: set a built-in feed where none is set, and apply url fixes
+/// where the stored url is still the old default. Returns how many watches changed.
+pub fn migrate(data: &mut Data) -> usize {
+    let mut changed = 0;
+    for i in 0..data.watches.len() {
+        let id = data.watches[i].id.clone();
+        let mut touched = false;
+        if data.watches[i].feed_url.as_deref().map_or(true, |f| f.trim().is_empty()) {
+            if let Some(f) = default_feed(&id) {
+                data.watches[i].feed_url = Some(f);
+                touched = true;
+            }
+        }
+        if let Some((_, new)) = DEFAULT_URL_FIXES.iter().find(|(i, _)| *i == id) {
+            let old = DEFAULTS.iter().find(|d| d.0 == id).and_then(|d| normalized(d.2));
+            let new = normalized(new);
+            if let (Some(old), Some(new)) = (old, new) {
+                let dup = data.watches.iter().any(|w| w.url == new);
+                if data.watches[i].url == old && !dup {
+                    data.watches[i].url = new;
+                    touched = true;
+                }
+            }
+        }
+        if touched {
+            changed += 1;
+        }
+    }
+    changed
+}
+
 /// Add every default whose id has not been seeded before. Returns the ids of watches added.
 /// Ids are recorded even when skipped for a duplicate URL, so removed defaults never come back.
 pub fn seed(data: &mut Data, now: &str) -> Vec<String> {
@@ -212,7 +273,9 @@ pub fn seed(data: &mut Data, now: &str) -> Vec<String> {
 /// Forget what was seeded, then seed again (the "Reset to built-in list" button).
 pub fn reset(data: &mut Data, now: &str) -> Vec<String> {
     data.seeded_defaults.clear();
-    seed(data, now)
+    let added = seed(data, now);
+    migrate(data);
+    added
 }
 
 pub fn seed_from(list: &[(&str, &str, &str, &str)], data: &mut Data, now: &str) -> Vec<String> {
@@ -237,6 +300,7 @@ pub fn seed_from(list: &[(&str, &str, &str, &str)], data: &mut Data, now: &str) 
             selector: String::new(),
             documents_only: false,
             category: (*category).to_string(),
+            feed_url: default_feed(id),
             created_at: now.to_string(),
         });
         added.push((*id).to_string());
@@ -295,7 +359,7 @@ mod tests {
         let list = [("a", "A", "https://a.org/x", OTHER), ("b", "B", "https://b.org/y", OTHER)];
         let mut d = Data::default();
         // user already watches a.org/x under their own id
-        d.watches.push(Watch { id: "mine".into(), url: "https://a.org/x".into(), label: "mine".into(), selector: String::new(), documents_only: false, category: String::new(), created_at: "t".into() });
+        d.watches.push(Watch { id: "mine".into(), url: "https://a.org/x".into(), label: "mine".into(), selector: String::new(), documents_only: false, category: String::new(), feed_url: None, created_at: "t".into() });
         d.seeded_defaults = vec![];
         assert_eq!(seed_from(&list[..1], &mut d, "t"), Vec::<String>::new());
         assert_eq!(d.watches.len(), 1);
@@ -304,5 +368,72 @@ mod tests {
         assert_eq!(seed_from(&list, &mut d, "t"), vec!["b"]);
         assert_eq!(d.watches.len(), 2);
         assert_eq!(d.watches[1].id, "b");
+    }
+
+    fn watch_of(id: &str) -> Watch {
+        let (_, label, url, category) = DEFAULTS.iter().find(|d| d.0 == id).unwrap();
+        Watch { id: id.into(), url: validate_url(url).unwrap().to_string(), label: (*label).into(), selector: String::new(), documents_only: false, category: (*category).into(), feed_url: None, created_at: "t".into() }
+    }
+
+    #[test]
+    fn feeds_are_valid_and_refer_to_real_defaults() {
+        assert_eq!(DEFAULT_FEEDS.len(), 11);
+        let mut ids = HashSet::new();
+        for (id, feed) in DEFAULT_FEEDS {
+            assert!(DEFAULTS.iter().any(|d| d.0 == *id), "unknown id {id}");
+            assert!(ids.insert(*id), "dup feed id {id}");
+            validate_url(feed).unwrap();
+        }
+        for (id, url) in DEFAULT_URL_FIXES {
+            assert!(DEFAULTS.iter().any(|d| d.0 == *id));
+            validate_url(url).unwrap();
+        }
+        assert!(DEFAULTS.iter().any(|d| d.0 == "usa-rare-earth" && d.2 == "https://investors.usare.com/news-events/press-releases"));
+    }
+
+    #[test]
+    fn seeding_applies_feeds() {
+        let mut d = Data::default();
+        seed(&mut d, "t");
+        let lynas = d.watches.iter().find(|w| w.id == "lynas").unwrap();
+        assert_eq!(lynas.feed_url.as_deref(), Some("https://lynasrareearths.com/feed/"));
+        assert_eq!(lynas.url, "https://lynasrareearths.com/");
+        assert!(d.watches.iter().find(|w| w.id == "mnr").unwrap().feed_url.is_none());
+        assert_eq!(d.watches.iter().filter(|w| w.feed_url.is_some()).count(), 11);
+    }
+
+    #[test]
+    fn migration_sets_feeds_but_keeps_user_feeds() {
+        let mut d = Data::default();
+        d.watches = vec![watch_of("lynas"), watch_of("solvay"), watch_of("mnr")];
+        d.watches[1].feed_url = Some("https://my.example.org/solvay.xml".into());
+        assert_eq!(migrate(&mut d), 1);
+        assert_eq!(d.watches[0].feed_url.as_deref(), Some("https://lynasrareearths.com/feed/"));
+        assert_eq!(d.watches[1].feed_url.as_deref(), Some("https://my.example.org/solvay.xml"));
+        assert!(d.watches[2].feed_url.is_none());
+        assert_eq!(migrate(&mut d), 0); // idempotent
+    }
+
+    #[test]
+    fn url_fix_only_when_unchanged() {
+        let new = "https://investors.usare.com/news-events/news-releases";
+        let mut d = Data::default();
+        d.watches = vec![watch_of("usa-rare-earth")];
+        assert_eq!(migrate(&mut d), 1);
+        assert_eq!(d.watches[0].url, new);
+        // user pointed it somewhere else: untouched
+        let mut d = Data::default();
+        let mut w = watch_of("usa-rare-earth");
+        w.url = "https://investors.usare.com/custom".into();
+        d.watches = vec![w];
+        assert_eq!(migrate(&mut d), 0);
+        assert_eq!(d.watches[0].url, "https://investors.usare.com/custom");
+        // another watch already uses the new url: no duplicate created
+        let mut d = Data::default();
+        let mut other = watch_of("mnr");
+        other.id = "mine".into();
+        other.url = new.into();
+        d.watches = vec![watch_of("usa-rare-earth"), other];
+        assert_eq!(migrate(&mut d), 0);
     }
 }

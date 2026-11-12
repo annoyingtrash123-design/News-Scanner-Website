@@ -258,7 +258,8 @@ function renderSites() {
         el('span', { class: `dot ${st.key}` }),
         el('span', { class: 'grow' }, link(w.url, w.label || hostOf(w.url), 'name'), el('span', { class: 'domain', text: hostOf(w.url) }),
           w.documentsOnly ? el('span', { class: 'tag', text: 'docs only' }) : null,
-          w.selector ? el('span', { class: 'tag', text: 'part of page' }) : null),
+          w.selector ? el('span', { class: 'tag', text: 'part of page' }) : null,
+          w.feedUrl ? el('span', { class: 'tag', text: 'via feed', title: w.feedUrl }) : null),
         el('span', { class: `st${st.bad ? ' bad' : ''}`, text: st.text, title: st.title || '' }),
         st.bad ? el('span', { class: 'st-why', text: errorText(w) }) : null,
         el('span', { class: 'when', text: w.lastChecked ? `checked ${ago(w.lastChecked)}` : '', title: w.lastChecked ? formatSydney(w.lastChecked) : '' }),
@@ -314,7 +315,7 @@ $('add-form').addEventListener('submit', async (ev) => {
   try {
     await api('POST', '/api/watches', {
       url: $('add-url').value.trim(), label: $('add-label').value.trim(), category: $('add-category').value,
-      selector: $('add-selector').value.trim(), documentsOnly: $('add-docs').checked,
+      selector: $('add-selector').value.trim(), feedUrl: $('add-feed').value.trim(), documentsOnly: $('add-docs').checked,
     });
     $('add-form').reset(); $('add-category').value = 'Other';
     setMsg($('add-msg'), 'Added. Taking a first snapshot now.');

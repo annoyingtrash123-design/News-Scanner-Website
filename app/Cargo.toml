@@ -22,6 +22,7 @@ rust-embed = "8"
 anyhow = "1"
 dirs = "5"
 hmac = "0.12"
+quick-xml = "0.37"
 
 # Linux: rustls with bundled roots (no OpenSSL needed to build).
 [target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]

@@ -1,5 +1,5 @@
 // Service worker: scheduling, checking, storage. It is the only writer of extension data.
-import { DEFAULTS, CATEGORIES } from './defaults.js';
+import { DEFAULTS, CATEGORIES, DEFAULT_FEEDS, DEFAULT_URL_FIXES } from './defaults.js';
 import * as lib from './lib.js';
 import { needsScore, withScore } from './keywords.js';
 
@@ -30,9 +30,18 @@ async function seedDefaults(reset) {
   return locked(async () => {
     const d = await chrome.storage.local.get({ watches: [], seededDefaults: [] });
     const data = { watches: d.watches, seededDefaults: reset ? [] : d.seededDefaults };
-    const added = lib.seedFrom(DEFAULTS, data, nowIso());
+    const added = lib.seedFrom(DEFAULTS, data, nowIso(), DEFAULT_FEEDS);
+    lib.migrateDefaults(DEFAULTS, data, DEFAULT_FEEDS, DEFAULT_URL_FIXES);
     await chrome.storage.local.set({ watches: data.watches, seededDefaults: data.seededDefaults });
     return added;
+  });
+}
+
+/** Every worker start: give existing built-in watches their feed and apply moved-address fixes. */
+async function migrateWatches() {
+  return locked(async () => {
+    const { watches } = await chrome.storage.local.get({ watches: [] });
+    if (lib.migrateDefaults(DEFAULTS, { watches }, DEFAULT_FEEDS, DEFAULT_URL_FIXES) > 0) await chrome.storage.local.set({ watches });
   });
 }
 
@@ -40,6 +49,10 @@ async function addWatch(b) {
   return locked(async () => {
     let url;
     try { url = lib.validateUrl(b.url); } catch (e) { return { ok: false, error: e.message }; }
+    let feedUrl = '';
+    if (String(b.feedUrl || '').trim()) {
+      try { feedUrl = lib.validateUrl(b.feedUrl); } catch (e) { return { ok: false, error: `Feed URL: ${e.message}` }; }
+    }
     const d = await chrome.storage.local.get({ watches: [] });
     if (d.watches.some((w) => w.url === url)) return { ok: false, error: 'You are already watching that page' };
     const w = {
@@ -51,6 +64,7 @@ async function addWatch(b) {
       category: CATEGORIES.includes(b.category) ? b.category : 'Other',
       createdAt: nowIso(),
     };
+    if (feedUrl) w.feedUrl = feedUrl;
     d.watches.push(w);
     await chrome.storage.local.set({ watches: d.watches });
     return { ok: true, id: w.id };
@@ -145,7 +159,7 @@ async function closeOffscreen() {
 }
 
 async function scanPage(w) {
-  const msg = { target: 'offscreen', type: 'scan', url: w.url, selector: w.selector || '' };
+  const msg = { target: 'offscreen', type: 'scan', url: lib.sourceUrlOf(w), selector: w.selector || '', feed: lib.sourceUrlOf(w) !== w.url };
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       await ensureOffscreen();
@@ -231,7 +245,7 @@ async function doRun(onlyIds) {
   const events = [];
   try {
     await ensureOffscreen();
-    await lib.forEachBounded(list, lib.MAX_CONCURRENT, (w) => lib.hostKey(w.url), async (w) => {
+    await lib.forEachBounded(list, lib.MAX_CONCURRENT, (w) => lib.hostKey(lib.sourceUrlOf(w)), async (w) => {
       try {
         const ev = await checkOne(w);
         if (ev) events.push(ev);
@@ -277,6 +291,7 @@ async function init() {
     const stopped = { running: false, finishedAt: nowIso() };
     if (run && run.running) await chrome.storage.local.set({ run: { ...run, ...stopped } });
     if (fullRun && fullRun.running) await chrome.storage.local.set({ fullRun: { ...fullRun, ...stopped } });
+    await migrateWatches();
     await rescoreEvents();
     await ensureAlarm(false);
     await updateBadge();

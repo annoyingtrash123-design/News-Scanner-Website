@@ -48,7 +48,17 @@ pub struct Watch {
     pub documents_only: bool,
     #[serde(default)]
     pub category: String,
+    /// Optional RSS/Atom feed. When set, the scanner fetches this instead of `url`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feed_url: Option<String>,
     pub created_at: String,
+}
+
+impl Watch {
+    /// The address that is actually fetched: the feed if one is set, else the page.
+    pub fn source_url(&self) -> &str {
+        self.feed_url.as_deref().map(str::trim).filter(|f| !f.is_empty()).unwrap_or(&self.url)
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -57,6 +67,9 @@ pub struct WatchState {
     pub last_checked: Option<String>,
     pub last_changed: Option<String>,
     pub last_hash: Option<String>,
+    /// The address `last_hash` was computed from. When it changes (page -> feed, URL fix) the next
+    /// successful check is a new baseline instead of a "change".
+    pub source_url: Option<String>,
     pub last_status: Option<String>,
     pub last_error: Option<String>,
     /// Category of the last failure (blocked, server, tls, timeout, dns, connection, no_text, not_found, other).

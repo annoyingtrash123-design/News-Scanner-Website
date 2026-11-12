@@ -2,6 +2,7 @@ mod checker;
 mod core;
 mod defaults;
 mod errors;
+mod feed;
 mod keywords;
 mod mailer;
 mod server;
@@ -48,6 +49,10 @@ async fn run() -> anyhow::Result<()> {
     let mut data = store::Data::load(&path);
     let now = checker::now_string();
     defaults::seed(&mut data, &now);
+    let migrated = defaults::migrate(&mut data);
+    if migrated > 0 {
+        println!("Updated {migrated} built-in watches (feeds / moved addresses).");
+    }
     let rescored = keywords::rescore_stale(&mut data.events);
     if rescored > 0 {
         println!("Scored {rescored} stored updates for keyword relevance.");

@@ -199,3 +199,24 @@ export const DEFAULTS = [
   { id: "lynas", label: "Lynas Rare Earths", url: "https://lynasrareearths.com/", category: MAGNETS },
   { id: "mp-materials", label: "MP Materials – Investors", url: "https://investors.mpmaterials.com/", category: MAGNETS },
 ];
+
+// Built-in feeds (watch id -> RSS/Atom feed url). Kept apart from DEFAULTS so shipped ids, labels and urls never change.
+// Applied when seeding and, for watches without a feed, on every startup. Parity with defaults.rs is tested.
+export const DEFAULT_FEEDS = {
+  "energy-storage-news": "https://www.energy-storage.news/feed/",
+  "ns-energy": "https://www.nsenergybusiness.com/feed/",
+  "mining-com-au": "https://mining.com.au/feed/",
+  "mining-technology": "https://www.mining-technology.com/news/feed/",
+  "mining-weekly": "https://www.miningweekly.com/page/latest-news/feed",
+  "scandium-mining": "https://scandiummining.com/feed/",
+  "lynas": "https://lynasrareearths.com/feed/",
+  "magneti-ljubljana": "https://www.magneti.si/en/feed/",
+  "magnequench": "https://mqitechnology.com/feed/",
+  "solvay": "https://www.solvay.com/rss.xml",
+  "ft-commodities": "https://www.ft.com/rss/news",
+};
+
+// Moved addresses (watch id -> new url). Applied only if the stored url still equals the id's url in DEFAULTS.
+export const DEFAULT_URL_FIXES = {
+  "usa-rare-earth": "https://investors.usare.com/news-events/news-releases",
+};

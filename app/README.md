@@ -40,6 +40,12 @@ The app is not signed with a paid certificate, so your computer warns you the fi
 - **Windows:** in the blue SmartScreen box click **More info**, then **Run anyway**.
 - **Linux:** you may need to mark it runnable first: `chmod +x news-scanner`.
 
+## Feeds (RSS/Atom)
+
+A site can have an optional **Feed URL** (Add a site, Advanced). When set, the scanner reads the feed instead of the page: each feed item becomes a link (title + description), so a new item shows up as a new link. The "Open" link and the site name still go to the page, and the Sites tab shows a small "via feed" tag. A plain page address that happens to return a feed is also read as a feed. Changes to feed metadata alone (such as the build date) are ignored. If a feed cannot be parsed the site is listed under "Couldn't check" with "Feed could not be read".
+
+Eleven built-in sites come with a feed (`DEFAULT_FEEDS` in `src/defaults.rs`). On every start, existing built-in sites without a feed get theirs; a feed you set yourself is never overwritten. `DEFAULT_URL_FIXES` moves a built-in site to its new address, but only if you have not changed the address yourself. Switching a site from page to feed (or moving its address) starts a fresh baseline, so it never produces a false "changed" update.
+
 ## Getting email alerts (optional)
 
 Open **Settings > Email alerts (optional)** on the Sites tab and fill in:

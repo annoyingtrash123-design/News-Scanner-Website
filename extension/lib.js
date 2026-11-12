@@ -227,6 +227,186 @@ export function hostKey(url) {
   try { return new URL(url).hostname.toLowerCase(); } catch { return ''; }
 }
 
+
+// ---------- feeds (RSS 2.0, Atom, RSS 1.0 / RDF) ----------
+// Mirrors app/src/feed.rs. Parsing works on a DOM-like Document (DOMParser "application/xml" in the offscreen document).
+
+export const FEED_ERROR = 'Feed could not be read';
+export const MAX_FEED_ITEMS = 200;
+export const MAX_DESC_CHARS = 300;
+
+/** Local name of the first element, skipping the XML declaration, comments, doctype and a BOM. */
+export function sniffRoot(body) {
+  let s = String(body).replace(/^﻿/, '').trimStart();
+  for (;;) {
+    if (!s.startsWith('<')) return null;
+    if (s.startsWith('<?')) { const i = s.indexOf('?>'); if (i < 0) return null; s = s.slice(i + 2).trimStart(); }
+    else if (s.startsWith('<!--')) { const i = s.indexOf('-->'); if (i < 0) return null; s = s.slice(i + 3).trimStart(); }
+    else if (s.startsWith('<!')) {
+      const b = s.indexOf('['), g = s.indexOf('>');
+      let end;
+      if (b >= 0 && (g < 0 || b < g)) { const e = s.indexOf(']>', b); if (e < 0) return null; end = e + 2; }
+      else if (g >= 0) end = g + 1;
+      else return null;
+      s = s.slice(end).trimStart();
+    } else {
+      const m = /^<([^\s>/]+)/.exec(s);
+      return m ? m[1].split(':').pop() : null;
+    }
+  }
+}
+
+const isFeedRoot = (n) => ['rss', 'feed', 'rdf'].includes(String(n).toLowerCase());
+
+/** True if the response is a feed: by content type (rss / atom / generic xml, not xhtml) or by root element. */
+export function isFeed(contentType, body) {
+  const ct = String(contentType || '').toLowerCase();
+  if (ct.includes('rss') || ct.includes('atom')) return true;
+  const root = sniffRoot(body);
+  if (root && isFeedRoot(root)) return true;
+  return ct.includes('xml') && !ct.includes('xhtml') && !(root && root.toLowerCase() === 'html');
+}
+
+const NAMED_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '–', mdash: '—', hellip: '…', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“' };
+
+function decodeEntities(s) {
+  return s.replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (m, n) => {
+    if (n[0] === '#') {
+      const code = n[1] === 'x' || n[1] === 'X' ? parseInt(n.slice(2), 16) : parseInt(n.slice(1), 10);
+      try { return String.fromCodePoint(code); } catch { return m; }
+    }
+    return Object.hasOwn(NAMED_ENTITIES, n) ? NAMED_ENTITIES[n] : m;
+  });
+}
+
+const BLOCK_TAGS = new Set(['p', 'br', 'div', 'li', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr', 'td', 'table', 'blockquote']);
+
+/** Remove HTML tags (block-level tags become spaces), decode common entities, collapse whitespace. */
+export function stripHtml(s) {
+  let out = '';
+  let rest = String(s);
+  for (;;) {
+    const i = rest.indexOf('<');
+    if (i < 0) break;
+    out += rest.slice(0, i);
+    const tail = rest.slice(i);
+    const end = tail.indexOf('>');
+    if (/^<[A-Za-z/!]/.test(tail) && end >= 0) {
+      const name = (/^[A-Za-z0-9]*/.exec(tail.slice(1).replace(/^\/+/, '')) || [''])[0].toLowerCase();
+      if (BLOCK_TAGS.has(name)) out += ' ';
+      rest = tail.slice(end + 1);
+    } else {
+      out += '<';
+      rest = tail.slice(1);
+    }
+  }
+  return normalize(decodeEntities(out + rest));
+}
+
+function truncate(s, max) {
+  const chars = Array.from(s);
+  return chars.length <= max ? s : chars.slice(0, max - 3).join('').trimEnd() + '...';
+}
+
+const kids = (el, name) => [...el.childNodes].filter((c) => c.nodeType === 1 && c.localName === name);
+
+function collectItems(el, out) {
+  for (const c of el.childNodes) {
+    if (c.nodeType !== 1) continue;
+    if (c.localName === 'item' || c.localName === 'entry') out.push(c);
+    else collectItems(c, out);
+  }
+}
+
+function firstText(item, names) {
+  for (const n of names) {
+    for (const c of kids(item, n)) {
+      const t = (c.textContent || '').trim();
+      if (t) return t;
+    }
+  }
+  return '';
+}
+
+function resolveUrl(base, href) {
+  href = String(href || '').trim();
+  if (!href) return null;
+  try {
+    const u = new URL(href, base || undefined);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
+  } catch { return null; }
+}
+
+function itemLink(item, base) {
+  let fallback = null;
+  for (const l of kids(item, 'link')) {
+    const h = l.getAttribute('href');
+    if (h !== null && h !== undefined) {
+      const rel = l.getAttribute('rel') || 'alternate';
+      if (rel === 'alternate') { const u = resolveUrl(base, h); if (u) return u; }
+      else if (!['self', 'edit', 'replies', 'enclosure', 'related'].includes(rel) && !fallback) fallback = resolveUrl(base, h);
+    } else if (l.nodeName === 'link') {
+      const u = resolveUrl(base, l.textContent); // RSS: <link>text</link>
+      if (u) return u;
+    }
+  }
+  if (fallback) return fallback;
+  for (const g of kids(item, 'guid')) {
+    if (g.getAttribute('isPermaLink') !== 'false') { const u = resolveUrl(base, g.textContent); if (u) return u; }
+  }
+  return resolveUrl(base, item.getAttribute('rdf:about')); // RSS 1.0
+}
+
+function hasParserError(node) {
+  if (node.nodeType === 1 && node.localName === 'parsererror') return true;
+  return [...node.childNodes].some((c) => c.nodeType === 1 && hasParserError(c));
+}
+
+/**
+ * Parse an RSS 2.0, Atom or RSS 1.0 Document into [{ id, title, link, published, summary }].
+ * Throws Error(FEED_ERROR) for anything unreadable. Relative links are resolved against `base`.
+ */
+export function parseFeedDoc(doc, base) {
+  const root = doc && doc.documentElement;
+  if (!root || hasParserError(root) || !isFeedRoot(root.localName)) throw new Error(FEED_ERROR);
+  const found = [];
+  collectItems(root, found);
+  const items = [];
+  const seen = new Set();
+  for (const it of found) {
+    const title = stripHtml(firstText(it, ['title']));
+    const link = itemLink(it, base) || '';
+    const id = firstText(it, ['guid', 'id']);
+    const summary = truncate(stripHtml(firstText(it, ['description', 'summary', 'encoded', 'content'])), MAX_DESC_CHARS);
+    if (!title && !link) continue;
+    const key = id || link || title;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({ id, title, link, published: firstText(it, ['pubDate', 'updated', 'published', 'date']), summary });
+    if (items.length >= MAX_FEED_ITEMS) break;
+  }
+  if (!items.length) throw new Error(FEED_ERROR);
+  return items;
+}
+
+/**
+ * Map feed items into the page content model { text, lines, links, hash source }. The hash covers only the item list
+ * (ids/links + titles), so feed metadata such as <lastBuildDate> never counts as a change.
+ */
+export function feedToContent(items) {
+  const lines = [];
+  const links = [];
+  const seen = new Set();
+  let hashSrc = '';
+  for (const it of items) {
+    if (it.title) lines.push(it.title);
+    if (it.summary) lines.push(it.summary);
+    if (it.link && !seen.has(it.link)) { seen.add(it.link); links.push({ href: it.link, text: Array.from(it.title).slice(0, 200).join('') }); }
+    hashSrc += `${it.id || it.link}\t${it.title}\n`;
+  }
+  return { text: normalize(lines.join(' ')), lines, links, hashSrc };
+}
+
 // ---------- check outcome ----------
 
 const CHALLENGE_TITLE = /just a moment|attention required/i;
@@ -309,17 +489,27 @@ export function pageProblem({ status, title, textLength, hasSelector }) {
   return null;
 }
 
+/** The address that is actually fetched: the feed if one is set, else the page. */
+export function sourceUrlOf(watch) {
+  const f = typeof watch.feedUrl === 'string' ? watch.feedUrl.trim() : '';
+  return f || watch.url;
+}
+
 /**
  * Compare fresh content against the previous state. prev = { meta, snap }, content = { lines, links, hash }.
  * Returns { meta, snap, event, diff } and never mutates its inputs. First check is a baseline (no event).
  */
 export function processScan(watch, prev, content, now) {
+  const source = sourceUrlOf(watch);
   const lines = content.lines.slice(0, MAX_STORED_LINES);
   const links = content.links.slice(0, MAX_LINKS);
   const prevMeta = prev.meta || {};
   const prevSnap = prev.snap || { lines: [], links: [] };
-  const meta = { ...prevMeta, lastChecked: now, lastStatus: 'ok', lastError: null, errorKind: null, errorMessage: null, lastHash: content.hash };
+  const meta = { ...prevMeta, lastChecked: now, lastStatus: 'ok', lastError: null, errorKind: null, errorMessage: null, lastHash: content.hash, sourceUrl: source };
   const snap = { lines, links };
+  // State saved before sourceUrl existed always came from the page URL.
+  const prevSource = prevMeta.sourceUrl ?? (prevMeta.lastHash ? watch.url : null);
+  if (prevSource !== null && prevSource !== source) return { meta, snap, event: null, diff: null }; // fetched source changed: new baseline
   if (!prevMeta.lastHash || prevMeta.lastHash === content.hash) return { meta, snap, event: null, diff: null };
   const diff = computeDiff(prevSnap.lines, prevSnap.links, lines, links, 20);
   if (watch.documentsOnly && !diff.newDocuments.length) return { meta, snap, event: null, diff };
@@ -345,7 +535,7 @@ export function errorMeta(prevMeta, now, failure) {
  * Add every default whose id has not been seeded before. data = { watches, seededDefaults } (mutated).
  * Ids are recorded even when skipped for a duplicate URL, so removed defaults never come back.
  */
-export function seedFrom(list, data, now) {
+export function seedFrom(list, data, now, feeds = {}) {
   const added = [];
   for (const d of list) {
     const w0 = data.watches.find((w) => w.id === d.id && !w.category);
@@ -355,10 +545,42 @@ export function seedFrom(list, data, now) {
     let url;
     try { url = validateUrl(d.url); } catch { continue; }
     if (data.watches.some((w) => w.id === d.id || w.url === url)) continue;
-    data.watches.push({ id: d.id, url, label: d.label, selector: '', documentsOnly: false, category: d.category, createdAt: now });
+    const w = { id: d.id, url, label: d.label, selector: '', documentsOnly: false, category: d.category, createdAt: now };
+    const feed = safeUrl(feeds[d.id]);
+    if (feed) w.feedUrl = feed;
+    data.watches.push(w);
     added.push(d.id);
   }
   return added;
+}
+
+function safeUrl(u) {
+  if (!u) return null;
+  try { return validateUrl(u); } catch { return null; }
+}
+
+/**
+ * Startup migration for existing watches: set a built-in feed where none is set (a user-set feed is kept),
+ * and apply url fixes where the stored url still equals the default's old url. data = { watches } (mutated).
+ * Returns the number of watches changed.
+ */
+export function migrateDefaults(list, data, feeds, fixes) {
+  let changed = 0;
+  for (const w of data.watches) {
+    let touched = false;
+    if (!(typeof w.feedUrl === 'string' && w.feedUrl.trim())) {
+      const feed = safeUrl(feeds[w.id]);
+      if (feed) { w.feedUrl = feed; touched = true; }
+    }
+    if (Object.hasOwn(fixes, w.id)) {
+      const def = list.find((d) => d.id === w.id);
+      const oldUrl = def && safeUrl(def.url);
+      const newUrl = safeUrl(fixes[w.id]);
+      if (oldUrl && newUrl && w.url === oldUrl && !data.watches.some((x) => x.url === newUrl)) { w.url = newUrl; touched = true; }
+    }
+    if (touched) changed++;
+  }
+  return changed;
 }
 
 // ---------- notifications ----------

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { DEFAULTS, CATEGORIES } from '../defaults.js';
-import { seedFrom, validateUrl } from '../lib.js';
+import { DEFAULTS, CATEGORIES, DEFAULT_FEEDS, DEFAULT_URL_FIXES } from '../defaults.js';
+import { seedFrom, validateUrl, migrateDefaults } from '../lib.js';
 
 const rs = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../app/src/defaults.rs'), 'utf8');
 const unesc = (s) => s.replace(/\\u\{([0-9a-f]+)\}/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)));
@@ -59,4 +59,56 @@ test('category backfill', () => {
   d.watches[0].category = '';
   seedFrom(DEFAULTS, d, 't');
   assert.equal(d.watches[0].category, DEFAULTS[0].category);
+});
+
+// ---------- DEFAULT_FEEDS / DEFAULT_URL_FIXES ----------
+
+const pairs = (name) => {
+  const block = new RegExp(`pub const ${name}: &\\[\\(&str, &str\\)\\] = &\\[([\\s\\S]*?)\\n\\];`).exec(rs)[1];
+  return Object.fromEntries([...block.matchAll(/^\s*\("([^"]+)", "([^"]+)"\),$/gm)].map((m) => [m[1], m[2]]));
+};
+
+test('DEFAULT_FEEDS and DEFAULT_URL_FIXES match app/src/defaults.rs', () => {
+  assert.deepEqual(DEFAULT_FEEDS, pairs('DEFAULT_FEEDS'));
+  assert.deepEqual(DEFAULT_URL_FIXES, pairs('DEFAULT_URL_FIXES'));
+  assert.equal(Object.keys(DEFAULT_FEEDS).length, 11);
+  for (const [id, f] of Object.entries({ ...DEFAULT_FEEDS, ...DEFAULT_URL_FIXES })) {
+    assert.ok(DEFAULTS.some((d) => d.id === id), `unknown id ${id}`);
+    validateUrl(f);
+  }
+  const ft = DEFAULTS.find((d) => d.id === 'ft-commodities');
+  assert.equal(ft.url, 'https://www.ft.com/commodities'); // DEFAULTS themselves are untouched
+  assert.equal(DEFAULTS.find((d) => d.id === 'usa-rare-earth').url, 'https://investors.usare.com/news-events/press-releases');
+});
+
+test('seeding applies built-in feeds', () => {
+  const d = { watches: [], seededDefaults: [] };
+  seedFrom(DEFAULTS, d, 't', DEFAULT_FEEDS);
+  assert.equal(d.watches.filter((w) => w.feedUrl).length, 11);
+  assert.equal(d.watches.find((w) => w.id === 'lynas').feedUrl, 'https://lynasrareearths.com/feed/');
+  assert.equal(d.watches.find((w) => w.id === 'lynas').url, 'https://lynasrareearths.com/');
+  assert.equal(d.watches.find((w) => w.id === 'mnr').feedUrl, undefined);
+});
+
+const watchOf = (id) => { const d = DEFAULTS.find((x) => x.id === id); return { id, url: validateUrl(d.url), label: d.label, category: d.category }; };
+
+test('migration sets feeds on existing watches but keeps a user-set feed', () => {
+  const data = { watches: [watchOf('lynas'), { ...watchOf('solvay'), feedUrl: 'https://my.example.org/s.xml' }, watchOf('mnr')] };
+  assert.equal(migrateDefaults(DEFAULTS, data, DEFAULT_FEEDS, DEFAULT_URL_FIXES), 1);
+  assert.equal(data.watches[0].feedUrl, 'https://lynasrareearths.com/feed/');
+  assert.equal(data.watches[1].feedUrl, 'https://my.example.org/s.xml');
+  assert.equal(data.watches[2].feedUrl, undefined);
+  assert.equal(migrateDefaults(DEFAULTS, data, DEFAULT_FEEDS, DEFAULT_URL_FIXES), 0);
+});
+
+test('url fix applies only while the stored url is still the old default', () => {
+  const next = 'https://investors.usare.com/news-events/news-releases';
+  let data = { watches: [watchOf('usa-rare-earth')] };
+  assert.equal(migrateDefaults(DEFAULTS, data, DEFAULT_FEEDS, DEFAULT_URL_FIXES), 1);
+  assert.equal(data.watches[0].url, next);
+  data = { watches: [{ ...watchOf('usa-rare-earth'), url: 'https://investors.usare.com/custom' }] };
+  assert.equal(migrateDefaults(DEFAULTS, data, DEFAULT_FEEDS, DEFAULT_URL_FIXES), 0);
+  assert.equal(data.watches[0].url, 'https://investors.usare.com/custom');
+  data = { watches: [watchOf('usa-rare-earth'), { id: 'mine', url: next }] };
+  assert.equal(migrateDefaults(DEFAULTS, data, DEFAULT_FEEDS, DEFAULT_URL_FIXES), 0); // no duplicate url
 });

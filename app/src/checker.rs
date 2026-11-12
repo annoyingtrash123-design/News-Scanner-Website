@@ -13,6 +13,8 @@ use tokio::task::JoinSet;
 pub const MAX_CONCURRENT: usize = 4;
 
 pub const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+const PAGE_ACCEPT: &str = "text/html,application/xhtml+xml,*/*;q=0.8";
+const FEED_ACCEPT: &str = "application/rss+xml,application/atom+xml,application/xml;q=0.9,text/xml;q=0.9,*/*;q=0.8";
 const MAX_BYTES: usize = 5 * 1024 * 1024;
 const MAX_STORED_LINES: usize = 1000;
 const MAX_LINKS: usize = 1500;
@@ -66,14 +68,14 @@ fn looks_complete(body: &[u8]) -> bool {
     String::from_utf8_lossy(tail).to_ascii_lowercase().contains("</html")
 }
 
-/// One GET attempt with manual redirects (each hop SSRF-checked). Returns (html, final_url).
-async fn fetch_once(client: &reqwest::Client, url: &str) -> Result<(String, String), FetchError> {
+/// One GET attempt with manual redirects (each hop SSRF-checked). Returns (body, final_url, content_type).
+async fn fetch_once(client: &reqwest::Client, url: &str, feed: bool) -> Result<(String, String, String), FetchError> {
     let mut current = url.to_string();
     for _ in 0..6 {
         let u = assert_public(&current).await?;
         let mut res = client
             .get(u.clone())
-            .header("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
+            .header("Accept", if feed { FEED_ACCEPT } else { PAGE_ACCEPT })
             .header("Accept-Language", "en-US,en;q=0.9")
             .send()
             .await
@@ -85,6 +87,7 @@ async fn fetch_once(client: &reqwest::Client, url: &str) -> Result<(String, Stri
                 }
             })?;
         let status = res.status();
+        let content_type = res.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
         if status.is_redirection() {
             if let Some(loc) = res.headers().get("location").and_then(|v| v.to_str().ok()) {
                 current = u.join(loc).map_err(|_| FetchError::new(ErrorKind::Other, "Bad redirect"))?.to_string();
@@ -119,19 +122,19 @@ async fn fetch_once(client: &reqwest::Client, url: &str) -> Result<(String, Stri
                 }
             }
         }
-        return Ok((String::from_utf8_lossy(&bytes).into_owned(), current));
+        return Ok((String::from_utf8_lossy(&bytes).into_owned(), current, content_type));
     }
     Err(FetchError::new(ErrorKind::Other, "Too many redirects"))
 }
 
 /// Fetch with at most one retry of a transient failure (see `errors::retry_delay`).
 /// Runs inside the caller's per-host slot, so the retry never overlaps another request to the host.
-pub async fn fetch_page(client: &reqwest::Client, url: &str) -> Result<(String, String), FetchError> {
-    match fetch_once(client, url).await {
+pub async fn fetch_page(client: &reqwest::Client, url: &str, feed: bool) -> Result<(String, String, String), FetchError> {
+    match fetch_once(client, url, feed).await {
         Err(e) => match retry_delay(&e) {
             Some(wait) => {
                 tokio::time::sleep(wait).await;
-                fetch_once(client, url).await.map_err(|mut e2| {
+                fetch_once(client, url, feed).await.map_err(|mut e2| {
                     e2.attempts = 2;
                     e2
                 })
@@ -166,13 +169,23 @@ pub struct Outcome {
     pub diff: Option<Diff>,
 }
 
-/// Pure part of a check: compare freshly fetched HTML against the previous state.
-pub fn process(watch: &Watch, prev: &WatchState, html: &str, final_url: &str, now: &str) -> Result<Outcome, String> {
-    let sel = (!watch.selector.trim().is_empty()).then_some(watch.selector.as_str());
-    let content = extract_content(html, sel, final_url)?;
-    if content.text.is_empty() {
-        return Err("No text found on page".into());
-    }
+/// Pure part of a check: compare a freshly fetched page or feed against the previous state.
+/// `body` is the page HTML or feed XML; feeds are detected by `content_type` or root element.
+pub fn process(watch: &Watch, prev: &WatchState, body: &str, final_url: &str, content_type: &str, now: &str) -> Result<Outcome, String> {
+    let content = if crate::feed::is_feed(content_type, body) {
+        crate::feed::feed_content(body, final_url)?
+    } else {
+        let sel = (!watch.selector.trim().is_empty()).then_some(watch.selector.as_str());
+        let c = extract_content(body, sel, final_url)?;
+        if c.text.is_empty() {
+            return Err("No text found on page".into());
+        }
+        c
+    };
+    let source = watch.source_url().to_string();
+    // State saved before `source_url` existed always came from the page URL.
+    let prev_source = prev.source_url.clone().or_else(|| prev.last_hash.as_ref().map(|_| watch.url.clone()));
+    let new_source = prev_source.as_deref().is_some_and(|p| p != source);
     let lines: Vec<String> = content.lines.iter().take(MAX_STORED_LINES).cloned().collect();
     let links: Vec<Link> = content.links.iter().take(MAX_LINKS).cloned().collect();
     let mut entry = prev.clone();
@@ -182,9 +195,13 @@ pub fn process(watch: &Watch, prev: &WatchState, html: &str, final_url: &str, no
     entry.error_kind = None;
     entry.error_message = None;
     entry.last_hash = Some(content.hash.clone());
+    entry.source_url = Some(source);
     entry.lines = lines.clone();
     entry.links = links.clone();
 
+    if new_source {
+        return Ok(Outcome { entry, event: None, diff: None }); // fetched source changed: new baseline, no event
+    }
     match &prev.last_hash {
         None => return Ok(Outcome { entry, event: None, diff: None }), // baseline
         Some(h) if *h == content.hash => return Ok(Outcome { entry, event: None, diff: None }),
@@ -226,9 +243,10 @@ pub fn now_string() -> String {
 /// Check one watch. Never fails: errors are recorded in the state entry.
 pub async fn check_watch(client: &reqwest::Client, watch: &Watch, prev: &WatchState) -> Outcome {
     let now = now_string();
-    let res = match fetch_page(client, &watch.url).await {
-        Ok((html, _)) if is_challenge_page(&html) => Err(FetchError::challenge()),
-        Ok((html, final_url)) => process(watch, prev, &html, &final_url, &now).map_err(|m| FetchError::from_process(&m)),
+    let is_feed_src = watch.source_url() != watch.url;
+    let res = match fetch_page(client, watch.source_url(), is_feed_src).await {
+        Ok((body, _, ct)) if !crate::feed::is_feed(&ct, &body) && is_challenge_page(&body) => Err(FetchError::challenge()),
+        Ok((body, final_url, ct)) => process(watch, prev, &body, &final_url, &ct, &now).map_err(|m| FetchError::from_process(&m)),
         Err(e) => Err(e),
     };
     res.unwrap_or_else(|e| {
@@ -319,7 +337,7 @@ pub async fn run_checks(app: &App, only: Option<Vec<String>>) {
         *app.status.lock().unwrap_or_else(|e| e.into_inner()) = st.clone();
         app.with_data(|d| d.last_run = Some(st));
     }
-    let items: Vec<(String, Watch)> = watches.into_iter().map(|w| (host_key(&w.url), w)).collect();
+    let items: Vec<(String, Watch)> = watches.into_iter().map(|w| (host_key(w.source_url()), w)).collect();
     let app2 = app.clone();
     for_each_bounded(items, MAX_CONCURRENT, move |w| {
         let app = app2.clone();
@@ -363,7 +381,7 @@ mod tests {
     use super::*;
 
     fn watch(docs_only: bool) -> Watch {
-        Watch { id: "w1".into(), url: "https://a.org/news".into(), label: "A".into(), selector: String::new(), documents_only: docs_only, category: String::new(), created_at: "t".into() }
+        Watch { id: "w1".into(), url: "https://a.org/news".into(), label: "A".into(), selector: String::new(), documents_only: docs_only, category: String::new(), feed_url: None, created_at: "t".into() }
     }
     const P1: &str = "<body><p>Hello world.</p><a href='/a.pdf'>A</a></body>";
     const P2: &str = "<body><p>Hello world. Something new here.</p><a href='/a.pdf'>A</a><a href='/b.pdf'>B</a></body>";
@@ -372,11 +390,11 @@ mod tests {
     #[test]
     fn baseline_then_change() {
         let w = watch(false);
-        let base = process(&w, &WatchState::default(), P1, &w.url, "t1").unwrap();
+        let base = process(&w, &WatchState::default(), P1, &w.url, "text/html", "t1").unwrap();
         assert!(base.event.is_none());
-        let same = process(&w, &base.entry, P1, &w.url, "t2").unwrap();
+        let same = process(&w, &base.entry, P1, &w.url, "text/html", "t2").unwrap();
         assert!(same.event.is_none());
-        let ch = process(&w, &base.entry, P2, &w.url, "t3").unwrap();
+        let ch = process(&w, &base.entry, P2, &w.url, "text/html", "t3").unwrap();
         let ev = ch.event.unwrap();
         assert_eq!(ev.new_documents.len(), 1);
         assert_eq!(ev.new_documents[0].href, "https://a.org/b.pdf");
@@ -386,12 +404,12 @@ mod tests {
     #[test]
     fn documents_only_gating() {
         let w = watch(true);
-        let base = process(&w, &WatchState::default(), P1, &w.url, "t1").unwrap();
-        let text_only = process(&w, &base.entry, P3, &w.url, "t2").unwrap();
+        let base = process(&w, &WatchState::default(), P1, &w.url, "text/html", "t1").unwrap();
+        let text_only = process(&w, &base.entry, P3, &w.url, "text/html", "t2").unwrap();
         assert!(text_only.event.is_none());
         assert!(text_only.entry.last_changed.is_none());
         assert_ne!(text_only.entry.last_hash, base.entry.last_hash); // state still advances
-        let with_doc = process(&w, &base.entry, P2, &w.url, "t3").unwrap();
+        let with_doc = process(&w, &base.entry, P2, &w.url, "text/html", "t3").unwrap();
         assert!(with_doc.event.is_some());
     }
 
@@ -400,15 +418,15 @@ mod tests {
         let w = watch(false);
         let a = "<body><p>Hello world, this is a long enough sentence.</p><p>Updated 3 minutes ago</p></body>";
         let b = "<body><p>Hello world, this is a long enough sentence.</p><p>Updated 9 minutes ago</p><p>Monday, 12 March 2025</p></body>";
-        let base = process(&w, &WatchState::default(), a, &w.url, "t1").unwrap();
-        let ch = process(&w, &base.entry, b, &w.url, "t2").unwrap();
+        let base = process(&w, &WatchState::default(), a, &w.url, "text/html", "t1").unwrap();
+        let ch = process(&w, &base.entry, b, &w.url, "text/html", "t2").unwrap();
         assert!(ch.event.is_none());
         assert!(ch.entry.last_changed.is_none());
         assert_ne!(ch.entry.last_hash, base.entry.last_hash);
         assert!(ch.entry.lines.iter().any(|l| l.contains("9 minutes")));
         // meaningful text does create an event
         let c = "<body><p>Hello world, this is a long enough sentence.</p><p>Minister announces a brand new funding program</p></body>";
-        let ev = process(&w, &ch.entry, c, &w.url, "t3").unwrap().event.unwrap();
+        let ev = process(&w, &ch.entry, c, &w.url, "text/html", "t3").unwrap().event.unwrap();
         assert_eq!(ev.added_text.len(), 1);
     }
 
@@ -449,9 +467,9 @@ mod tests {
     #[test]
     fn new_events_are_scored() {
         let w = watch(false);
-        let base = process(&w, &WatchState::default(), P1, &w.url, "t1").unwrap();
+        let base = process(&w, &WatchState::default(), P1, &w.url, "text/html", "t1").unwrap();
         let p = "<body><p>Hello world.</p><a href='/a.pdf'>A</a><a href='/news/1'>China tightens rare earth export controls</a><a href='/news/2'>Local council approves bike lane</a></body>";
-        let ev = process(&w, &base.entry, p, &w.url, "t2").unwrap().event.unwrap();
+        let ev = process(&w, &base.entry, p, &w.url, "text/html", "t2").unwrap().event.unwrap();
         assert_eq!(ev.relevance, "high");
         assert_eq!(ev.kw_version, crate::keywords::KW_VERSION);
         assert!(ev.matched_topics.contains(&"Rare earths".to_string()));
@@ -469,10 +487,83 @@ mod tests {
         assert!(!looks_complete(b"<html><body>x"));
     }
 
+    const FEED1: &str = r#"<?xml version="1.0"?><rss version="2.0"><channel><title>N</title><lastBuildDate>Mon, 02 Nov 2026 01:00:00 GMT</lastBuildDate>
+<item><title>China tightens rare earth export controls</title><link>https://a.org/news/1</link><guid>g1</guid><description>&lt;p&gt;Beijing announced new limits.&lt;/p&gt;</description></item></channel></rss>"#;
+
+    fn feed_watch() -> Watch {
+        let mut w = watch(false);
+        w.feed_url = Some("https://a.org/feed/".into());
+        w
+    }
+
+    #[test]
+    fn feed_build_date_alone_is_not_a_change() {
+        let w = feed_watch();
+        let base = process(&w, &WatchState::default(), FEED1, "https://a.org/feed/", "application/rss+xml", "t1").unwrap();
+        assert!(base.event.is_none());
+        assert_eq!(base.entry.source_url.as_deref(), Some("https://a.org/feed/"));
+        let bumped = FEED1.replace("01:00:00 GMT", "07:45:00 GMT");
+        let same = process(&w, &base.entry, &bumped, "https://a.org/feed/", "application/rss+xml", "t2").unwrap();
+        assert!(same.event.is_none());
+        assert_eq!(same.entry.last_hash, base.entry.last_hash);
+        assert!(same.entry.last_changed.is_none());
+    }
+
+    #[test]
+    fn new_feed_item_is_an_event_with_a_new_link() {
+        let w = feed_watch();
+        let base = process(&w, &WatchState::default(), FEED1, "https://a.org/feed/", "text/xml", "t1").unwrap();
+        let two = FEED1.replace("</channel>", "<item><title>Lynas signs heavy rare earths offtake</title><link>/news/2</link><guid>g2</guid></item><item><title>Annual report</title><link>https://a.org/r.pdf</link><guid>g3</guid></item></channel>");
+        let ev = process(&w, &base.entry, &two, "https://a.org/feed/", "text/xml", "t2").unwrap().event.unwrap();
+        assert_eq!(ev.new_links.len(), 1);
+        assert_eq!(ev.new_links[0], Link { href: "https://a.org/news/2".into(), text: "Lynas signs heavy rare earths offtake".into() });
+        assert_eq!(ev.new_documents.len(), 1); // document links in feeds still count as documents
+        assert_eq!(ev.new_documents[0].ext, "pdf");
+        assert_eq!(ev.url, "https://a.org/news"); // the event points at the site, not the feed
+        assert_eq!(ev.relevance, "high"); // scoring works on feed titles
+    }
+
+    #[test]
+    fn plain_url_that_returns_a_feed_is_parsed_as_a_feed() {
+        let w = watch(false);
+        let base = process(&w, &WatchState::default(), FEED1, &w.url, "text/html", "t1").unwrap();
+        assert_eq!(base.entry.links.len(), 1);
+        assert_eq!(base.entry.links[0].href, "https://a.org/news/1");
+    }
+
+    #[test]
+    fn malformed_feed_is_an_error() {
+        let w = feed_watch();
+        let e = process(&w, &WatchState::default(), "<rss><channel><item><title>x", "https://a.org/feed/", "application/rss+xml", "t").err().unwrap();
+        assert_eq!(e, "Feed could not be read");
+        assert_eq!(FetchError::from_process(&e).kind.as_str(), "other");
+    }
+
+    #[test]
+    fn switching_source_is_a_new_baseline() {
+        let w = watch(false);
+        let base = process(&w, &WatchState::default(), P1, &w.url, "text/html", "t1").unwrap();
+        assert_eq!(base.entry.source_url.as_deref(), Some("https://a.org/news"));
+        // page -> feed: different content, but no event; stored as the new baseline
+        let fw = feed_watch();
+        let sw = process(&fw, &base.entry, FEED1, "https://a.org/feed/", "application/rss+xml", "t2").unwrap();
+        assert!(sw.event.is_none());
+        assert!(sw.entry.last_changed.is_none());
+        assert_eq!(sw.entry.source_url.as_deref(), Some("https://a.org/feed/"));
+        // next change on the feed is reported normally
+        let two = FEED1.replace("</channel>", "<item><title>New offtake announced by Lynas</title><link>/news/9</link><guid>g9</guid></item></channel>");
+        assert!(process(&fw, &sw.entry, &two, "https://a.org/feed/", "application/rss+xml", "t3").unwrap().event.is_some());
+        // state saved before source_url existed counts as coming from the page URL
+        let mut legacy = base.entry.clone();
+        legacy.source_url = None;
+        assert!(process(&w, &legacy, P2, &w.url, "text/html", "t4").unwrap().event.is_some());
+        assert!(process(&fw, &legacy, FEED1, "https://a.org/feed/", "application/rss+xml", "t4").unwrap().event.is_none());
+    }
+
     #[test]
     fn selector_errors() {
         let mut w = watch(false);
         w.selector = ".missing".into();
-        assert!(process(&w, &WatchState::default(), P1, &w.url, "t").is_err());
+        assert!(process(&w, &WatchState::default(), P1, &w.url, "text/html", "t").is_err());
     }
 }

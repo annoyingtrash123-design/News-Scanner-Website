@@ -19,6 +19,10 @@ Checks the built-in list of 37 news and announcement pages (plus any you add) wh
 - Add your own sites on the Sites tab (optionally limit to part of a page with a CSS selector, or alert only on new documents).
 - All data stays in this Chrome profile (`chrome.storage.local`). Nothing is sent anywhere except the requests to the sites themselves.
 
+## Feeds (RSS/Atom)
+
+A site can have an optional **Feed URL** (Add a site, Advanced). The extension then fetches the feed instead of the page and treats each item as a link (title + description); "Open" still goes to the page and the Sites tab shows a "via feed" tag. A page address that returns a feed is also detected. Feed metadata such as the build date does not count as a change, and an unreadable feed is listed under "Couldn't check" ("Feed could not be read"). Eleven built-in sites have feeds (`DEFAULT_FEEDS` in `defaults.js`), applied on install and on every start unless you set your own; `DEFAULT_URL_FIXES` moves a built-in address only if you have not changed it. Changing the fetched source starts a new baseline rather than reporting a change. Feeds are parsed with `DOMParser` in the offscreen document.
+
 ## Development
 
 ```

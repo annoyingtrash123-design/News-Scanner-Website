@@ -147,7 +147,7 @@ async fn static_file(uri: Uri) -> Response {
 fn watch_view(d: &crate::store::Data, w: &Watch) -> Value {
     let s = d.state.get(&w.id).cloned().unwrap_or_default();
     json!({
-        "id": w.id, "url": w.url, "label": w.label, "selector": w.selector,
+        "id": w.id, "url": w.url, "feedUrl": w.feed_url, "label": w.label, "selector": w.selector,
         "documentsOnly": w.documents_only,
         "category": if w.category.is_empty() { crate::defaults::OTHER } else { w.category.as_str() }, "createdAt": w.created_at,
         "lastChecked": s.last_checked, "lastChanged": s.last_changed,
@@ -172,6 +172,8 @@ struct NewWatch {
     documents_only: bool,
     #[serde(default)]
     category: String,
+    #[serde(default)]
+    feed_url: String,
 }
 
 async fn add_watch(State(app): State<App>, Json(b): Json<NewWatch>) -> Result<(StatusCode, Json<Value>), ApiError> {
@@ -180,12 +182,17 @@ async fn add_watch(State(app): State<App>, Json(b): Json<NewWatch>) -> Result<(S
     if !selector.is_empty() && scraper::Selector::parse(&selector).is_err() {
         return err(StatusCode::BAD_REQUEST, "Invalid CSS selector");
     }
+    let feed_url = match b.feed_url.trim() {
+        "" => None,
+        f => Some(validate_url(f).map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("Feed URL: {e}")))?.to_string()),
+    };
     let label: String = b.label.trim().chars().take(100).collect();
     let w = Watch {
         id: uuid::Uuid::new_v4().simple().to_string(),
         url,
         label,
         selector,
+        feed_url,
         documents_only: b.documents_only,
         category: if crate::defaults::CATEGORIES.contains(&b.category.as_str()) { b.category.clone() } else { crate::defaults::OTHER.to_string() },
         created_at: now_string(),
